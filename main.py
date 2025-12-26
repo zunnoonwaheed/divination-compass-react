@@ -5,6 +5,15 @@ import math
 app = FastAPI()
 swe.set_ephe_path("./ephe")
 
+@app.get("/")
+def root():
+    return {
+        "status": "running",
+        "service": "Swiss Ephemeris API",
+        "endpoints": ["/chart", "/docs"]
+    }
+
+
 FLAGS = swe.FLG_SWIEPH | swe.FLG_SPEED
 
 PLANETS = {
