@@ -51,10 +51,11 @@ MINOR_PLANETS_BY_NUMBER = {
     "Amor_1221": 1221,
     "Valentine_447": 447,
     "Cupido_763": 763,
+    "Eris_136199": 136199,
 }
 
 # Eris is a TNO and is a named body in Swiss Ephemeris
-"Eris_136199": 136199,
+
 
 SIGNS = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"]
 
