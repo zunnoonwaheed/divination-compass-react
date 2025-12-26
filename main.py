@@ -1,18 +1,11 @@
-from fastapi import FastAPI, Query
-import swisseph as swe
+from fastapi import FastAPI, Query, HTTPException
+import os
 import math
+import requests
+import swisseph as swe
 
 app = FastAPI()
 swe.set_ephe_path("./ephe")
-
-@app.get("/")
-def root():
-    return {
-        "status": "running",
-        "service": "Swiss Ephemeris API",
-        "endpoints": ["/chart", "/docs"]
-    }
-
 
 FLAGS = swe.FLG_SWIEPH | swe.FLG_SPEED
 
@@ -33,13 +26,10 @@ POINTS = {
     "MeanNode": swe.MEAN_NODE,
     "TrueNode": swe.TRUE_NODE,
     "Chiron": swe.CHIRON,
-    # Lilith Black Moon points
     "LilithMeanApogee": swe.MEAN_APOG,
     "LilithOscApogee": swe.OSCU_APOG,
-    # Some people also use Priapus (opposite point). You can add if you want.
 }
 
-# Major asteroids (built-in constants)
 MAJOR_ASTEROIDS = {
     "Ceres": swe.CERES,
     "Pallas": swe.PALLAS,
@@ -47,7 +37,6 @@ MAJOR_ASTEROIDS = {
     "Vesta": swe.VESTA,
 }
 
-# Minor planet numbers (Swiss Ephemeris supports this via AST_OFFSET + number)
 MINOR_PLANETS_BY_NUMBER = {
     "Lilith_1181": 1181,
     "Eros_433": 433,
@@ -63,10 +52,14 @@ MINOR_PLANETS_BY_NUMBER = {
     "Eris_136199": 136199,
 }
 
+SIGNS = [
+    "Aries","Taurus","Gemini","Cancer","Leo","Virgo",
+    "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"
+]
 
-
-
-SIGNS = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"]
+@app.get("/")
+def root():
+    return {"status": "running", "endpoints": ["/chart", "/docs"]}
 
 def norm360(x: float) -> float:
     x = x % 360.0
@@ -78,18 +71,20 @@ def lon_to_sign_deg(lon: float) -> dict:
     deg_in_sign = lon - (sign_index * 30)
     deg = int(deg_in_sign)
     minutes = int(round((deg_in_sign - deg) * 60))
+
     if minutes == 60:
         minutes = 0
         deg += 1
         if deg == 30:
             deg = 0
             sign_index = (sign_index + 1) % 12
+
     return {"lon": lon, "sign": SIGNS[sign_index], "deg": deg, "min": minutes}
 
 def calc_body(jd_ut: float, body_id: int) -> dict:
     pos = swe.calc_ut(jd_ut, body_id, FLAGS)[0]
     lon = float(pos[0])
-    spd = float(pos[3])  # deg/day
+    spd = float(pos[3])
     out = lon_to_sign_deg(lon)
     out["speed"] = spd
     return out
@@ -104,6 +99,36 @@ def calc_minor_planet(jd_ut: float, number: int) -> dict:
     out["number"] = number
     return out
 
+def mapbox_geocode(city: str, state: str | None, country: str) -> tuple[float, float, str]:
+    token = os.getenv("MAPBOX_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="MAPBOX_TOKEN is not set in environment variables")
+
+    query = f"{city}, {country}" if not state else f"{city}, {state}, {country}"
+    url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{query}.json"
+    try:
+        r = requests.get(url, params={"access_token": token, "limit": 1}, timeout=10)
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Mapbox request failed: {e}")
+
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Mapbox error {r.status_code}: {r.text[:200]}")
+
+    data = r.json()
+    features = data.get("features", [])
+    if not features:
+        raise HTTPException(status_code=404, detail=f"Location not found: {query}")
+
+    center = features[0].get("center")
+    place_name = features[0].get("place_name", query)
+
+    if not center or len(center) != 2:
+        raise HTTPException(status_code=502, detail="Mapbox response missing center coordinates")
+
+    lon = float(center[0])
+    lat = float(center[1])
+    return lat, lon, place_name
+
 @app.get("/chart")
 def chart(
     year: int,
@@ -113,27 +138,23 @@ def chart(
     minute: int = Query(0, ge=0, le=59),
     second: int = Query(0, ge=0, le=59),
     tz_offset_hours: float = Query(0.0, description="Example: -5 for EST, -4 for EDT"),
-    lat: float = Query(..., description="Latitude, ex 34.0522"),
-    lon: float = Query(..., description="Longitude, ex -118.2437"),
+
+    city: str = Query(..., description="Birth city, ex Los Angeles"),
+    state: str | None = Query(None, description="Birth state/region, ex CA"),
+    country: str = Query(..., description="Birth country, ex US or United States"),
+
     house_system: str = Query("P", description="P=Placidus, W=Whole Sign, K=Koch, O=Porphyry, R=Regiomontanus, C=Campanus, E=Equal"),
 ):
-    # Convert local time to UT
+    lat, lon, place_name = mapbox_geocode(city=city, state=state, country=country)
+
     local_hours = hour + (minute / 60.0) + (second / 3600.0)
     ut_hours = local_hours - tz_offset_hours
-
-    # Julian Day in UT
     jd_ut = swe.julday(year, month, day, ut_hours, swe.GREG_CAL)
 
-    # Houses and angles
     hs = house_system[:1].upper()
-    houses_res = swe.houses_ex(jd_ut, lat, lon, hs)
-    cusps = houses_res[0]   # index 1..12 present
-    ascmc = houses_res[1]   # [ASC, MC, ARMC, Vertex, EquAsc, CoAsc1, CoAsc2, PolAsc]
+    cusps, ascmc = swe.houses_ex(jd_ut, lat, lon, hs)
 
-    houses = {}
-    for i in range(1, 13):
-        houses[f"House{i}"] = lon_to_sign_deg(float(cusps[i]))
-
+    houses = {f"House{i}": lon_to_sign_deg(float(cusps[i])) for i in range(1, 13)}
     angles = {
         "ASC": lon_to_sign_deg(float(ascmc[0])),
         "MC": lon_to_sign_deg(float(ascmc[1])),
@@ -141,7 +162,6 @@ def chart(
     }
 
     bodies = {}
-
     for name, pid in PLANETS.items():
         bodies[name] = calc_body(jd_ut, pid)
 
@@ -149,9 +169,6 @@ def chart(
         bodies[name] = calc_body(jd_ut, pid)
 
     for name, pid in MAJOR_ASTEROIDS.items():
-        bodies[name] = calc_body(jd_ut, pid)
-
-    for name, pid in EXTRA_TNOS.items():
         bodies[name] = calc_body(jd_ut, pid)
 
     minor = {}
@@ -164,13 +181,13 @@ def chart(
             "date": f"{year:04d}-{month:02d}-{day:02d}",
             "time_local": f"{hour:02d}:{minute:02d}:{second:02d}",
             "tz_offset_hours": tz_offset_hours,
-            "lat": lat,
-            "lon": lon,
+            "birth_place_input": {"city": city, "state": state, "country": country},
+            "birth_place_resolved": {"place_name": place_name, "lat": lat, "lon": lon},
             "house_system": hs,
         },
         "angles": angles,
         "houses": houses,
-        "house12": houses["House12"],  # convenience
+        "house12": houses["House12"],
         "bodies": bodies,
         "asteroids": minor,
     }
