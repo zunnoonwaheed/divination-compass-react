@@ -55,7 +55,7 @@ MINOR_PLANETS_BY_NUMBER = {
 
 # Eris is a TNO and is a named body in Swiss Ephemeris
 EXTRA_TNOS = {
-    "Eris": swe.ERIS,
+    
 }
 
 SIGNS = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"]
