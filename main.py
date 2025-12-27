@@ -156,10 +156,13 @@ def chart(
 
     houses = {f"House{i}": lon_to_sign_deg(float(cusps[i])) for i in range(1, 13)}
     angles = {
-        "ASC": lon_to_sign_deg(float(ascmc[0])),
-        "MC": lon_to_sign_deg(float(ascmc[1])),
-        "Vertex": lon_to_sign_deg(float(ascmc[3])),
-    }
+    "ASC": lon_to_sign_deg(float(ascmc[0])),
+    "MC": lon_to_sign_deg(float(ascmc[1])),
+    "DC": lon_to_sign_deg((float(ascmc[0]) + 180.0) % 360.0),
+    "IC": lon_to_sign_deg((float(ascmc[1]) + 180.0) % 360.0),
+    "Vertex": lon_to_sign_deg(float(ascmc[3])),
+}
+
 
     bodies = {}
     for name, pid in PLANETS.items():
