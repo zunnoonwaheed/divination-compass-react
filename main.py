@@ -224,3 +224,60 @@ def natalchart_alias(
         country=country,
         house_system=house_system,
     )
+
+@app.get("/api/natalchart")
+def natalchart_latlon(
+    year: int,
+    month: int,
+    day: int,
+    hour: int = Query(0, ge=0, le=23),
+    minute: int = Query(0, ge=0, le=59),
+    second: int = Query(0, ge=0, le=59),
+    tz_offset_hours: float = Query(0.0),
+    lat: float = Query(...),
+    lon: float = Query(...),
+    house_system: str = Query("P"),
+):
+    # Use your existing Swiss Ephemeris logic, but skip Mapbox
+    local_hours = hour + (minute / 60.0) + (second / 3600.0)
+    ut_hours = local_hours - tz_offset_hours
+    jd_ut = swe.julday(year, month, day, ut_hours, swe.GREG_CAL)
+
+    hs = house_system[:1].upper()
+    cusps, ascmc = swe.houses_ex(jd_ut, lat, lon, hs)
+
+    houses = {f"House{i}": lon_to_sign_deg(float(cusps[i])) for i in range(1, 13)}
+    angles = {
+        "ASC": lon_to_sign_deg(float(ascmc[0])),
+        "MC": lon_to_sign_deg(float(ascmc[1])),
+        "DC": lon_to_sign_deg((float(ascmc[0]) + 180.0) % 360.0),
+        "IC": lon_to_sign_deg((float(ascmc[1]) + 180.0) % 360.0),
+        "Vertex": lon_to_sign_deg(float(ascmc[3])),
+    }
+
+    bodies = {}
+    for name, pid in PLANETS.items():
+        bodies[name] = calc_body(jd_ut, pid)
+    for name, pid in POINTS.items():
+        bodies[name] = calc_body(jd_ut, pid)
+    for name, pid in MAJOR_ASTEROIDS.items():
+        bodies[name] = calc_body(jd_ut, pid)
+
+    minor = {name: calc_minor_planet(jd_ut, num) for name, num in MINOR_PLANETS_BY_NUMBER.items()}
+
+    return {
+        "jd_ut": jd_ut,
+        "input": {
+            "date": f"{year:04d}-{month:02d}-{day:02d}",
+            "time_local": f"{hour:02d}:{minute:02d}:{second:02d}",
+            "tz_offset_hours": tz_offset_hours,
+            "lat": lat,
+            "lon": lon,
+            "house_system": hs,
+        },
+        "angles": angles,
+        "houses": houses,
+        "house12": houses["House12"],
+        "bodies": bodies,
+        "asteroids": minor,
+    }
