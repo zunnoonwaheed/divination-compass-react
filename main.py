@@ -194,3 +194,33 @@ def chart(
         "bodies": bodies,
         "asteroids": minor,
     }
+@app.get("/api/natalchart")
+def natalchart_alias(
+    year: int,
+    month: int,
+    day: int,
+    hour: int = Query(0, ge=0, le=23),
+    minute: int = Query(0, ge=0, le=59),
+    second: int = Query(0, ge=0, le=59),
+    tz_offset_hours: float = Query(0.0),
+
+    city: str = Query(...),
+    state: str | None = Query(None),
+    country: str = Query(...),
+
+    house_system: str = Query("P"),
+):
+    # Reuse the existing /chart logic
+    return chart(
+        year=year,
+        month=month,
+        day=day,
+        hour=hour,
+        minute=minute,
+        second=second,
+        tz_offset_hours=tz_offset_hours,
+        city=city,
+        state=state,
+        country=country,
+        house_system=house_system,
+    )
