@@ -1,5 +1,6 @@
-// Updated main.py with safe handling of cusps and fallback logic
+// Updated main.py with safe handling of cusps, fallback logic, and CORS headers
 from fastapi import FastAPI, Query, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import os
 import math
 import requests
@@ -9,6 +10,15 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 
 app = FastAPI(debug=True)
+
+# CORS setup to allow external requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 swe.set_ephe_path("./ephe")
 
 FLAGS = swe.FLG_SWIEPH | swe.FLG_SPEED
@@ -240,4 +250,3 @@ def natalchart_latlon(year: int, month: int, day: int, hour: int = 0, minute: in
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True, log_level="debug")
-    
