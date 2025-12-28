@@ -138,7 +138,7 @@ def mapbox_geocode(city: str, state: str | None, country: str) -> tuple[float, f
     return lat, lon, place_name
 
 def compute_chart(jd_ut: float, lat: float, lon: float, hs: str) -> dict:
-    cusps, ascmc = swe.houses_ex(jd_ut, lat, lon, hs)
+    cusps, ascmc = swe.houses_ex(jd_ut, lat, lon, hs.encode('ascii'))
     houses = {f"House{i}": lon_to_sign_deg(float(cusps[i])) for i in range(1, 13)}
     angles = {
         "ASC": lon_to_sign_deg(float(ascmc[0])),
@@ -179,32 +179,8 @@ def chart(year: int, month: int, day: int, hour: int = 0, minute: int = 0, secon
     }
 
 @app.get("/api/natalchart-city")
-def natalchart_city(
-    year: int,
-    month: int,
-    day: int,
-    hour: int = 0,
-    minute: int = 0,
-    second: int = 0,
-    tz_offset_hours: float = 0.0,
-    city: str = Query(...),
-    state: str | None = None,
-    country: str = Query(...),
-    house_system: str = Query("P")
-):
-    return chart(
-        year=year,
-        month=month,
-        day=day,
-        hour=hour,
-        minute=minute,
-        second=second,
-        tz_offset_hours=tz_offset_hours,
-        city=city,
-        state=state,
-        country=country,
-        house_system=house_system
-    )
+def natalchart_city(**kwargs):
+    return chart(**kwargs)
 
 @app.get("/api/natalchart-latlon")
 def natalchart_latlon(year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0,
@@ -231,3 +207,5 @@ def natalchart_latlon(year: int, month: int, day: int, hour: int = 0, minute: in
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True, log_level="debug")
+
+
