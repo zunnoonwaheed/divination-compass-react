@@ -1,4 +1,4 @@
-// Updated main.py with safe handling of cusps, fallback logic, and CORS headers
+# Updated main.py with safe handling of cusps, fallback logic, and CORS headers
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -11,10 +11,11 @@ logging.basicConfig(level=logging.DEBUG)
 
 app = FastAPI(debug=True)
 
-# CORS setup to allow external requests
+# Enable CORS for all origins (adjust as needed)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -153,7 +154,7 @@ def compute_chart(jd_ut: float, lat: float, lon: float, hs: str) -> dict:
     cusps, ascmc = swe.houses_ex(jd_ut, lat, lon, hs_bytes)
 
     houses = {}
-    for i in range(1, len(cusps)):
+    for i in range(1, min(13, len(cusps))):
         houses[f"House{i}"] = lon_to_sign_deg(float(cusps[i]))
     house12 = houses.get("House12") or houses.get(list(houses.keys())[-1], None)
 
