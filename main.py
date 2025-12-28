@@ -179,8 +179,32 @@ def chart(year: int, month: int, day: int, hour: int = 0, minute: int = 0, secon
     }
 
 @app.get("/api/natalchart-city")
-def natalchart_city(**kwargs):
-    return chart(**kwargs)
+def natalchart_city(
+    year: int,
+    month: int,
+    day: int,
+    hour: int = 0,
+    minute: int = 0,
+    second: int = 0,
+    tz_offset_hours: float = 0.0,
+    city: str = Query(...),
+    state: str | None = None,
+    country: str = Query(...),
+    house_system: str = Query("P")
+):
+    return chart(
+        year=year,
+        month=month,
+        day=day,
+        hour=hour,
+        minute=minute,
+        second=second,
+        tz_offset_hours=tz_offset_hours,
+        city=city,
+        state=state,
+        country=country,
+        house_system=house_system
+    )
 
 @app.get("/api/natalchart-latlon")
 def natalchart_latlon(year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0,
