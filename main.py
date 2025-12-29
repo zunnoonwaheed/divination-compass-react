@@ -35,6 +35,8 @@ PLANETS = {
     "Uranus": swe.URANUS,
     "Neptune": swe.NEPTUNE,
     "Pluto": swe.PLUTO,
+    # "Chiron": swe.CHIRON,  ← temporarily disable
+
 }
 
 POINTS = {
