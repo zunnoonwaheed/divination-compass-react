@@ -1,255 +1,60 @@
-# Updated main.py with safe handling of cusps, fallback logic, and CORS headers
-from fastapi import FastAPI, Query, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-import os
-import math
-import requests
-import swisseph as swe
-import logging
+from fastapi import Request
+from anthropic import Anthropic
 
-logging.basicConfig(level=logging.DEBUG)
+anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-app = FastAPI(debug=True)
-
-# Enable CORS for all origins (adjust as needed)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-swe.set_ephe_path("./ephe")
-
-FLAGS = swe.FLG_SWIEPH | swe.FLG_SPEED
-
-PLANETS = {
-    "Sun": swe.SUN,
-    "Moon": swe.MOON,
-    "Mercury": swe.MERCURY,
-    "Venus": swe.VENUS,
-    "Mars": swe.MARS,
-    "Jupiter": swe.JUPITER,
-    "Saturn": swe.SATURN,
-    "Uranus": swe.URANUS,
-    "Neptune": swe.NEPTUNE,
-    "Pluto": swe.PLUTO,
-    # "Chiron": swe.CHIRON,  ← temporarily disable
-
-}
-
-POINTS = {
-    "MeanNode": swe.MEAN_NODE,
-    "TrueNode": swe.TRUE_NODE,
-    "Chiron": swe.CHIRON,
-    "LilithMeanApogee": swe.MEAN_APOG,
-    "LilithOscApogee": swe.OSCU_APOG,
-}
-
-MAJOR_ASTEROIDS = {
-    "Ceres": swe.CERES,
-    "Pallas": swe.PALLAS,
-    "Juno": swe.JUNO,
-    "Vesta": swe.VESTA,
-}
-
-MINOR_PLANETS_BY_NUMBER = {
-    "Lilith_1181": 1181,
-    "Eros_433": 433,
-    "Psyche_16": 16,
-    "Hygiea_10": 10,
-    "Pholus_5145": 5145,
-    "Nessus_7066": 7066,
-    "Chariklo_10199": 10199,
-    "Sappho_80": 80,
-    "Amor_1221": 1221,
-    "Valentine_447": 447,
-    "Cupido_763": 763,
-    "Eris_136199": 136199,
-}
-
-SIGNS = [
-    "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
-    "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"
-]
-
-@app.get("/")
-def root():
+@app.get("/api/natal-chart")
+def natal_chart_alias(
+    date: str = Query(...),
+    time: str = Query(...),
+    latitude: float = Query(...),
+    longitude: float = Query(...)
+):
+    try:
+        date_parts = date.split("-")
+        time_parts = time.split(":")
+        year, month, day = int(date_parts[0]), int(date_parts[1]), int(date_parts[2])
+        hour, minute = int(time_parts[0]), int(time_parts[1])
+        second = int(time_parts[2]) if len(time_parts) > 2 else 0
+    except Exception:
+        raise HTTPException(400, detail="Invalid date or time format")
+    
+    local_hours = hour + minute / 60.0 + second / 3600.0
+    jd_ut = swe.julday(year, month, day, local_hours, swe.GREG_CAL)
+    chart_data = compute_chart(jd_ut, latitude, longitude, "P")
     return {
-        "status": "running",
-        "endpoints": ["/chart", "/api/natalchart-city", "/api/natalchart-latlon"],
-        "env": {"MAPBOX_TOKEN_SET": bool(os.getenv("MAPBOX_TOKEN"))}
+        "jd_ut": jd_ut,
+        "input": {"date": date, "time": time, "latitude": latitude, "longitude": longitude},
+        **chart_data
     }
 
-def norm360(x: float) -> float:
-    x = x % 360.0
-    return x + 360.0 if x < 0 else x
-
-def lon_to_sign_deg(lon: float) -> dict:
-    lon = norm360(lon)
-    sign_index = int(lon // 30)
-    deg_in_sign = lon - (sign_index * 30)
-    deg = int(deg_in_sign)
-    minutes = int(round((deg_in_sign - deg) * 60))
-    if minutes == 60:
-        minutes = 0
-        deg += 1
-        if deg == 30:
-            deg = 0
-            sign_index = (sign_index + 1) % 12
-    return {"lon": lon, "sign": SIGNS[sign_index], "deg": deg, "min": minutes}
-
-def calc_body(jd_ut: float, body_id: int) -> dict:
-    try:
-        pos = swe.calc_ut(jd_ut, body_id, FLAGS)[0]
-    except Exception as e:
-        logging.error(f"calc_body error for body_id {body_id}: {e}")
-        raise HTTPException(500, detail=f"Ephemeris error for body_id {body_id}")
-    lon = float(pos[0])
-    spd = float(pos[3])
-    out = lon_to_sign_deg(lon)
-    out["speed"] = spd
-    return out
-
-def calc_minor_planet(jd_ut: float, number: int) -> dict:
-    try:
-        body_id = swe.AST_OFFSET + number
-        pos = swe.calc_ut(jd_ut, body_id, FLAGS)[0]
-    except Exception as e:
-        logging.error(f"calc_minor_planet error for number {number}: {e}")
-        raise HTTPException(500, detail=f"Ephemeris error for minor planet {number}")
-    lon = float(pos[0])
-    spd = float(pos[3])
-    out = lon_to_sign_deg(lon)
-    out["speed"] = spd
-    out["number"] = number
-    return out
-
-def mapbox_geocode(city: str, state: str | None, country: str) -> tuple[float, float, str]:
+@app.get("/api/mapbox-token")
+def get_mapbox_token():
     token = os.getenv("MAPBOX_TOKEN")
     if not token:
-        raise HTTPException(status_code=500, detail="MAPBOX_TOKEN is not set in environment variables")
-    query = f"{city}, {country}" if not state else f"{city}, {state}, {country}"
-    url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{query}.json"
-    try:
-        r = requests.get(url, params={"access_token": token, "limit": 1}, timeout=10)
-    except requests.RequestException as e:
-        logging.error(f"Mapbox request failed: {e}")
-        raise HTTPException(502, detail=f"Mapbox request failed: {e}")
-    if r.status_code != 200:
-        raise HTTPException(502, detail=f"Mapbox error {r.status_code}: {r.text[:200]}")
-    data = r.json()
-    features = data.get("features", [])
-    if not features:
-        raise HTTPException(404, detail=f"Location not found: {query}")
-    center = features[0].get("center")
-    place_name = features[0].get("place_name", query)
-    if not center or len(center) != 2:
-        raise HTTPException(502, detail="Mapbox response missing center coordinates")
-    lon = float(center[0])
-    lat = float(center[1])
-    return lat, lon, place_name
+        raise HTTPException(500, detail="MAPBOX_TOKEN not set")
+    return {"token": token}
 
-def compute_chart(jd_ut: float, lat: float, lon: float, hs: str) -> dict:
-    hs_bytes = hs.encode("utf-8")
-    cusps, ascmc = swe.houses_ex(jd_ut, lat, lon, hs_bytes)
-
-    houses = {}
-    for i in range(1, min(13, len(cusps))):
-        houses[f"House{i}"] = lon_to_sign_deg(float(cusps[i]))
-    house12 = houses.get("House12") or houses.get(list(houses.keys())[-1], None)
-
-    angles = {
-        "ASC": lon_to_sign_deg(float(ascmc[0])),
-        "MC": lon_to_sign_deg(float(ascmc[1])),
-        "DC": lon_to_sign_deg((float(ascmc[0]) + 180.0) % 360.0),
-        "IC": lon_to_sign_deg((float(ascmc[1]) + 180.0) % 360.0),
-        "Vertex": lon_to_sign_deg(float(ascmc[3]))
-    }
-
-    bodies = {
-        **{k: calc_body(jd_ut, v) for k, v in PLANETS.items()},
-        **{k: calc_body(jd_ut, v) for k, v in POINTS.items()},
-        **{k: calc_body(jd_ut, v) for k, v in MAJOR_ASTEROIDS.items()}
-    }
-    minor = {k: calc_minor_planet(jd_ut, v) for k, v in MINOR_PLANETS_BY_NUMBER.items()}
-
-    return {"angles": angles, "houses": houses, "house12": house12, "bodies": bodies, "asteroids": minor}
-
-@app.get("/chart")
-def chart(year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0,
-          tz_offset_hours: float = 0.0, city: str = Query(...), state: str | None = None, country: str = Query(...),
-          house_system: str = Query("P")):
-    lat, lon, place_name = mapbox_geocode(city, state, country)
-    local_hours = hour + minute / 60.0 + second / 3600.0
-    ut_hours = local_hours - tz_offset_hours
-    jd_ut = swe.julday(year, month, day, ut_hours, swe.GREG_CAL)
-    hs = house_system[:1].upper()
-    chart_data = compute_chart(jd_ut, lat, lon, hs)
-    return {
-        "jd_ut": jd_ut,
-        "input": {
-            "date": f"{year:04d}-{month:02d}-{day:02d}",
-            "time_local": f"{hour:02d}:{minute:02d}:{second:02d}",
-            "tz_offset_hours": tz_offset_hours,
-            "birth_place_input": {"city": city, "state": state, "country": country},
-            "birth_place_resolved": {"place_name": place_name, "lat": lat, "lon": lon},
-            "house_system": hs
-        },
-        **chart_data
-    }
-
-@app.get("/api/natalchart-city")
-def natalchart_city(
-    year: int,
-    month: int,
-    day: int,
-    hour: int = 0,
-    minute: int = 0,
-    second: int = 0,
-    tz_offset_hours: float = 0.0,
-    city: str = Query(...),
-    state: str | None = None,
-    country: str = Query(...),
-    house_system: str = Query("P")
-):
-    return chart(
-        year=year,
-        month=month,
-        day=day,
-        hour=hour,
-        minute=minute,
-        second=second,
-        tz_offset_hours=tz_offset_hours,
-        city=city,
-        state=state,
-        country=country,
-        house_system=house_system
+@app.post("/api/generate-astrology")
+async def generate_astrology(request: Request):
+    body = await request.json()
+    prompt = body.get("prompt", "Generate a brief astrology reading based on this chart data.")
+    chart_data = body.get("chart_data", {})
+    
+    message = anthropic_client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=1024,
+        messages=[
+            {"role": "user", "content": f"{prompt}\n\nChart data: {chart_data}"}
+        ]
     )
+    return {"reading": message.content[0].text}
+```
 
-@app.get("/api/natalchart-latlon")
-def natalchart_latlon(year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0,
-                      tz_offset_hours: float = 0.0, lat: float = Query(...), lon: float = Query(...),
-                      house_system: str = Query("P")):
-    local_hours = hour + minute / 60.0 + second / 3600.0
-    ut_hours = local_hours - tz_offset_hours
-    jd_ut = swe.julday(year, month, day, ut_hours, swe.GREG_CAL)
-    hs = house_system[:1].upper()
-    chart_data = compute_chart(jd_ut, lat, lon, hs)
-    return {
-        "jd_ut": jd_ut,
-        "input": {
-            "date": f"{year:04d}-{month:02d}-{day:02d}",
-            "time_local": f"{hour:02d}:{minute:02d}:{second:02d}",
-            "tz_offset_hours": tz_offset_hours,
-            "lat": lat,
-            "lon": lon,
-            "house_system": hs
-        },
-        **chart_data
-    }
+**Then in Railway**, make sure you have these environment variables set:
+- `MAPBOX_TOKEN` — your Mapbox key
+- `ANTHROPIC_API_KEY` — your Anthropic key (needed for `/api/generate-astrology`)
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True, log_level="debug")
+Also add `anthropic` to your `requirements.txt` in GitHub:
+```
+anthropic
