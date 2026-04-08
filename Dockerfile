@@ -16,8 +16,9 @@ COPY . /app
 # Install Python dependencies from requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose port Railway uses
-EXPOSE 8080
+# Expose port Railway uses (dynamic)
+EXPOSE ${PORT:-8080}
 
-# Start the FastAPI server with auto-reload and debug logging
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--reload", "--log-level", "debug"]
+# Start the FastAPI server
+# Note: Railway provides PORT env var dynamically
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080} --log-level info
