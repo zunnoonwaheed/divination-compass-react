@@ -4,3 +4,5 @@ pyswisseph
 requests
 anthropic
 python-dotenv
+timezonefinder
+pytz

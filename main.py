@@ -1,14 +1,90 @@
 import os
+import logging
+from datetime import datetime
 from fastapi import FastAPI, Request, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import swisseph as swe
 from dotenv import load_dotenv
+from timezonefinder import TimezoneFinder
+import pytz
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Set the path to ephemeris files
 swe.set_ephe_path('./ephe')
+
+# Initialize TimezoneFinder for lat/lon to timezone conversion
+tf = TimezoneFinder()
+
+def convert_local_to_utc(year, month, day, hour, minute, second, latitude, longitude):
+    """
+    Convert local birth time to UTC using the timezone at the birth location.
+
+    Args:
+        year, month, day, hour, minute, second: Local birth time components
+        latitude, longitude: Birth location coordinates
+
+    Returns:
+        dict: {
+            'utc_datetime': datetime object in UTC,
+            'utc_jd': Julian Day in UTC,
+            'timezone_name': timezone name (e.g., 'America/Los_Angeles'),
+            'utc_offset_hours': UTC offset in hours (e.g., -8 for PST),
+            'local_datetime_str': formatted local datetime,
+            'utc_datetime_str': formatted UTC datetime
+        }
+    """
+    try:
+        # Get timezone name from coordinates
+        timezone_name = tf.timezone_at(lat=latitude, lng=longitude)
+        if not timezone_name:
+            raise ValueError(f"Could not determine timezone for coordinates: {latitude}, {longitude}")
+
+        logger.info(f"📍 Birth location timezone: {timezone_name}")
+
+        # Create timezone-aware local datetime
+        local_tz = pytz.timezone(timezone_name)
+
+        # Create naive local datetime
+        naive_local_dt = datetime(year, month, day, hour, minute, second)
+
+        # Localize to the birth location timezone (handles DST automatically)
+        local_dt = local_tz.localize(naive_local_dt)
+
+        # Convert to UTC
+        utc_dt = local_dt.astimezone(pytz.UTC)
+
+        # Calculate UTC offset
+        utc_offset_seconds = local_dt.utcoffset().total_seconds()
+        utc_offset_hours = utc_offset_seconds / 3600
+
+        # Calculate Julian Day using UTC time
+        utc_hours = utc_dt.hour + utc_dt.minute / 60.0 + utc_dt.second / 3600.0
+        jd_ut = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day, utc_hours, swe.GREG_CAL)
+
+        # Log the conversion
+        logger.info(f"🕐 Input local datetime: {naive_local_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"🌍 Detected timezone: {timezone_name}")
+        logger.info(f"⏰ UTC offset: {utc_offset_hours:+.1f} hours")
+        logger.info(f"🌐 Converted UTC datetime: {utc_dt.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        logger.info(f"📅 Julian Day (UT): {jd_ut}")
+
+        return {
+            'utc_datetime': utc_dt,
+            'utc_jd': jd_ut,
+            'timezone_name': timezone_name,
+            'utc_offset_hours': utc_offset_hours,
+            'local_datetime_str': naive_local_dt.strftime('%Y-%m-%d %H:%M:%S'),
+            'utc_datetime_str': utc_dt.strftime('%Y-%m-%d %H:%M:%S UTC')
+        }
+    except Exception as e:
+        logger.error(f"❌ Timezone conversion error: {str(e)}")
+        raise HTTPException(400, detail=f"Timezone conversion failed: {str(e)}")
 
 app = FastAPI()
 
@@ -133,6 +209,16 @@ def natal_chart_alias(
     latitude: float = Query(...),
     longitude: float = Query(...)
 ):
+    """
+    Calculate natal chart with proper timezone conversion.
+    Expects LOCAL birth time and converts to UTC internally.
+    """
+    logger.info(f"\n{'='*60}")
+    logger.info(f"🌟 NATAL CHART REQUEST")
+    logger.info(f"{'='*60}")
+    logger.info(f"Input - Date: {date}, Time: {time}")
+    logger.info(f"Input - Location: ({latitude}, {longitude})")
+
     try:
         date_parts = date.split("-")
         time_parts = time.split(":")
@@ -141,13 +227,33 @@ def natal_chart_alias(
         second = int(time_parts[2]) if len(time_parts) > 2 else 0
     except Exception:
         raise HTTPException(400, detail="Invalid date or time format")
-    
-    local_hours = hour + minute / 60.0 + second / 3600.0
-    jd_ut = swe.julday(year, month, day, local_hours, swe.GREG_CAL)
+
+    # Convert local birth time to UTC (this is the critical fix!)
+    utc_info = convert_local_to_utc(year, month, day, hour, minute, second, latitude, longitude)
+
+    # Use UTC Julian Day for all calculations
+    jd_ut = utc_info['utc_jd']
+
+    # Compute chart using UTC
     chart_data = compute_chart(jd_ut, latitude, longitude, "P")
+
+    logger.info(f"✅ Natal chart calculated successfully")
+    logger.info(f"{'='*60}\n")
+
     return {
         "jd_ut": jd_ut,
-        "input": {"date": date, "time": time, "latitude": latitude, "longitude": longitude},
+        "input": {
+            "date": date,
+            "time": time,
+            "latitude": latitude,
+            "longitude": longitude
+        },
+        "timezone_info": {
+            "timezone": utc_info['timezone_name'],
+            "utc_offset_hours": utc_info['utc_offset_hours'],
+            "local_datetime": utc_info['local_datetime_str'],
+            "utc_datetime": utc_info['utc_datetime_str']
+        },
         **chart_data
     }
 
@@ -183,7 +289,16 @@ def astrocartography(
     latitude: float = Query(...),
     longitude: float = Query(...)
 ):
-    """Calculate astrocartography lines for ley lines map"""
+    """
+    Calculate astrocartography lines for ley lines map.
+    Uses proper UTC conversion to ensure lines are accurate.
+    """
+    logger.info(f"\n{'='*60}")
+    logger.info(f"🗺️  ASTROCARTOGRAPHY REQUEST")
+    logger.info(f"{'='*60}")
+    logger.info(f"Input - Date: {date}, Time: {time}")
+    logger.info(f"Input - Birth Location: ({latitude}, {longitude})")
+
     try:
         date_parts = date.split("-")
         time_parts = time.split(":")
@@ -193,8 +308,11 @@ def astrocartography(
     except Exception:
         raise HTTPException(400, detail="Invalid date or time format")
 
-    local_hours = hour + minute / 60.0 + second / 3600.0
-    jd_ut = swe.julday(year, month, day, local_hours, swe.GREG_CAL)
+    # Convert local birth time to UTC (same fix as natal chart!)
+    utc_info = convert_local_to_utc(year, month, day, hour, minute, second, latitude, longitude)
+
+    # Use UTC Julian Day for all calculations
+    jd_ut = utc_info['utc_jd']
 
     # Get planetary positions
     planet_ids = {
@@ -254,9 +372,23 @@ def astrocartography(
             except Exception:
                 continue
 
+    logger.info(f"✅ Astrocartography calculated: {len(lines)} lines found")
+    logger.info(f"{'='*60}\n")
+
     return {
         "jd_ut": jd_ut,
-        "input": {"date": date, "time": time, "latitude": latitude, "longitude": longitude},
+        "input": {
+            "date": date,
+            "time": time,
+            "latitude": latitude,
+            "longitude": longitude
+        },
+        "timezone_info": {
+            "timezone": utc_info['timezone_name'],
+            "utc_offset_hours": utc_info['utc_offset_hours'],
+            "local_datetime": utc_info['local_datetime_str'],
+            "utc_datetime": utc_info['utc_datetime_str']
+        },
         "lines": lines,
         "birth_location": {"latitude": latitude, "longitude": longitude}
     }
