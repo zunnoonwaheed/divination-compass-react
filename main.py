@@ -1,5 +1,6 @@
 import os
 import logging
+import math
 from datetime import datetime
 from fastapi import FastAPI, Request, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -257,6 +258,200 @@ def natal_chart_alias(
         **chart_data
     }
 
+def calculate_mc_line_longitude(planet_ra, jd_ut):
+    """
+    Calculate longitude where planet is on MC (Midheaven).
+
+    MC line formula: Longitude = (Planet RA - RAMC at Greenwich) * 15
+    where RAMC = Right Ascension of MC
+
+    Args:
+        planet_ra: Planet's Right Ascension in degrees
+        jd_ut: Julian Day in UTC
+
+    Returns:
+        Longitude in degrees (-180 to 180)
+    """
+    # Get sidereal time at Greenwich
+    # swe.sidtime returns sidereal time in hours
+    gmst_hours = swe.sidtime(jd_ut)  # Greenwich Mean Sidereal Time in hours
+    gmst_degrees = gmst_hours * 15.0  # Convert hours to degrees
+
+    # MC line: where planet's RA equals RAMC
+    # Longitude = Planet RA - RAMC (in degrees)
+    mc_longitude = planet_ra - gmst_degrees
+
+    # Normalize to -180 to 180
+    while mc_longitude > 180:
+        mc_longitude -= 360
+    while mc_longitude < -180:
+        mc_longitude += 360
+
+    return mc_longitude
+
+def calculate_asc_line_points(planet_ra, planet_dec, jd_ut, num_points=50):
+    """
+    Calculate points along the Ascendant line for a planet.
+
+    ASC line is where the planet is rising on the eastern horizon.
+    This requires solving for longitude at each latitude using oblique ascension.
+
+    Args:
+        planet_ra: Planet's Right Ascension in degrees
+        planet_dec: Planet's Declination in degrees
+        jd_ut: Julian Day in UTC
+        num_points: Number of points to calculate along the line
+
+    Returns:
+        List of (latitude, longitude) tuples
+    """
+    points = []
+
+    # Get obliquity of ecliptic (Earth's axial tilt)
+    obliquity = swe.calc_ut(jd_ut, swe.ECL_NUT)[0][0]  # Mean obliquity
+
+    # Calculate for latitudes from -60 to 60 (beyond this, calculations get unreliable)
+    latitudes = [lat for lat in range(-60, 61, int(120/num_points)) if lat != 0]
+
+    for lat in latitudes:
+        try:
+            # For ASC line, we need to find longitude where planet is on eastern horizon
+            # This involves calculating the Local Sidereal Time when planet rises
+
+            # Calculate oblique ascension (OA) for this planet at this latitude
+            # OA depends on planet's RA, Dec, and observer's latitude
+
+            lat_rad = math.radians(lat)
+            dec_rad = math.radians(planet_dec)
+
+            # Check if planet is circumpolar or never rises at this latitude
+            if abs(planet_dec) + abs(lat) > 90:
+                # Planet may be circumpolar (always up) or never visible
+                if (planet_dec > 0 and lat > 0) or (planet_dec < 0 and lat < 0):
+                    # Similar hemisphere - might be circumpolar
+                    if abs(lat) + abs(planet_dec) > 90:
+                        continue  # Skip this latitude
+
+            # Calculate hour angle when planet is on horizon
+            # cos(H) = -tan(lat) * tan(dec)
+            cos_h = -math.tan(lat_rad) * math.tan(dec_rad)
+
+            if abs(cos_h) > 1:
+                # Planet never rises or never sets at this latitude
+                continue
+
+            # Hour angle in degrees
+            hour_angle = math.degrees(math.acos(cos_h))
+
+            # Local Sidereal Time when planet rises = RA - Hour Angle
+            lst_rise = planet_ra - hour_angle
+
+            # Get Greenwich Sidereal Time
+            gmst_hours = swe.sidtime(jd_ut)
+            gmst_degrees = gmst_hours * 15.0
+
+            # Longitude = LST - GST (when planet is rising)
+            longitude = lst_rise - gmst_degrees
+
+            # Normalize to -180 to 180
+            while longitude > 180:
+                longitude -= 360
+            while longitude < -180:
+                longitude += 360
+
+            points.append({'latitude': lat, 'longitude': longitude})
+
+        except (ValueError, ZeroDivisionError):
+            # Skip problematic latitudes
+            continue
+
+    return points
+
+def calculate_astrocartography_lines_proper(jd_ut):
+    """
+    Calculate accurate astrocartography lines using spherical astronomy.
+
+    Returns lines for MC, IC, ASC, DSC for each planet.
+    """
+    planet_ids = {
+        'Sun': swe.SUN,
+        'Moon': swe.MOON,
+        'Mercury': swe.MERCURY,
+        'Venus': swe.VENUS,
+        'Mars': swe.MARS,
+        'Jupiter': swe.JUPITER,
+        'Saturn': swe.SATURN,
+        'Uranus': swe.URANUS,
+        'Neptune': swe.NEPTUNE,
+        'Pluto': swe.PLUTO,
+    }
+
+    lines = []
+
+    for planet_name, planet_id in planet_ids.items():
+        # Get planet position in EQUATORIAL coordinates (RA/Dec)
+        # SEFLG_EQUATORIAL = 2048
+        result_eq = swe.calc_ut(jd_ut, planet_id, swe.FLG_EQUATORIAL)
+
+        planet_ra = result_eq[0][0]   # Right Ascension in degrees (0-360)
+        planet_dec = result_eq[0][1]  # Declination in degrees (-90 to +90)
+
+        logger.info(f"  {planet_name}: RA={planet_ra:.2f}°, Dec={planet_dec:.2f}°")
+
+        # 1. MC LINE (Midheaven) - vertical line where planet culminates
+        mc_lon = calculate_mc_line_longitude(planet_ra, jd_ut)
+
+        # MC line is a meridian (vertical line) - generate points at different latitudes
+        for lat in range(-60, 61, 5):
+            lines.append({
+                'planet': planet_name,
+                'line_type': 'MC',
+                'latitude': lat,
+                'longitude': mc_lon,
+                'planet_ra': planet_ra,
+                'planet_dec': planet_dec
+            })
+
+        # 2. IC LINE (Imum Coeli) - opposite of MC (180° away)
+        ic_lon = mc_lon + 180 if mc_lon < 0 else mc_lon - 180
+
+        for lat in range(-60, 61, 5):
+            lines.append({
+                'planet': planet_name,
+                'line_type': 'IC',
+                'latitude': lat,
+                'longitude': ic_lon,
+                'planet_ra': planet_ra,
+                'planet_dec': planet_dec
+            })
+
+        # 3. ASC LINE (Ascendant) - curved line where planet rises
+        asc_points = calculate_asc_line_points(planet_ra, planet_dec, jd_ut)
+        for point in asc_points:
+            lines.append({
+                'planet': planet_name,
+                'line_type': 'ASC',
+                'latitude': point['latitude'],
+                'longitude': point['longitude'],
+                'planet_ra': planet_ra,
+                'planet_dec': planet_dec
+            })
+
+        # 4. DSC LINE (Descendant) - opposite of ASC (where planet sets)
+        # DSC is 180° opposite in longitude from ASC
+        for point in asc_points:
+            dsc_lon = point['longitude'] + 180 if point['longitude'] < 0 else point['longitude'] - 180
+            lines.append({
+                'planet': planet_name,
+                'line_type': 'DSC',
+                'latitude': point['latitude'],
+                'longitude': dsc_lon,
+                'planet_ra': planet_ra,
+                'planet_dec': planet_dec
+            })
+
+    return lines
+
 @app.get("/api/mapbox-token")
 def get_mapbox_token():
     token = os.getenv("MAPBOX_TOKEN")
@@ -314,65 +509,12 @@ def astrocartography(
     # Use UTC Julian Day for all calculations
     jd_ut = utc_info['utc_jd']
 
-    # Get planetary positions
-    planet_ids = {
-        'Sun': swe.SUN,
-        'Moon': swe.MOON,
-        'Mercury': swe.MERCURY,
-        'Venus': swe.VENUS,
-        'Mars': swe.MARS,
-        'Jupiter': swe.JUPITER,
-        'Saturn': swe.SATURN,
-        'Uranus': swe.URANUS,
-        'Neptune': swe.NEPTUNE,
-        'Pluto': swe.PLUTO,
-    }
+    logger.info(f"🔬 Calculating planetary RA/Dec for astrocartography...")
 
-    lines = []
+    # Calculate proper astrocartography lines using spherical astronomy
+    lines = calculate_astrocartography_lines_proper(jd_ut)
 
-    # Calculate lines for each planet at different latitudes
-    for planet_name, planet_id in planet_ids.items():
-        result = swe.calc_ut(jd_ut, planet_id)
-        planet_lon = result[0][0]
-
-        # Calculate longitude lines where planet is on angles
-        # ASC line: where planet rises
-        # MC line: where planet culminates
-        # DSC line: where planet sets
-        # IC line: where planet is at lower culmination
-
-        for lat in range(-80, 81, 10):  # Sample latitudes
-            try:
-                # Calculate houses for this latitude at different longitudes
-                for lon in range(-180, 181, 5):
-                    houses, ascmc = swe.houses(jd_ut, lat, lon, b'P')
-                    asc = ascmc[0]
-                    mc = ascmc[1]
-                    dsc = (asc + 180) % 360
-                    ic = (mc + 180) % 360
-
-                    # Check if planet is within 1 degree of any angle
-                    tolerance = 1.0
-                    if abs(planet_lon - asc) < tolerance or abs(planet_lon - asc - 360) < tolerance:
-                        lines.append({
-                            'planet': planet_name,
-                            'line_type': 'ASC',
-                            'latitude': lat,
-                            'longitude': lon,
-                            'planet_longitude': planet_lon
-                        })
-                    if abs(planet_lon - mc) < tolerance or abs(planet_lon - mc - 360) < tolerance:
-                        lines.append({
-                            'planet': planet_name,
-                            'line_type': 'MC',
-                            'latitude': lat,
-                            'longitude': lon,
-                            'planet_longitude': planet_lon
-                        })
-            except Exception:
-                continue
-
-    logger.info(f"✅ Astrocartography calculated: {len(lines)} lines found")
+    logger.info(f"✅ Astrocartography calculated: {len(lines)} lines found using proper spherical astronomy")
     logger.info(f"{'='*60}\n")
 
     return {
