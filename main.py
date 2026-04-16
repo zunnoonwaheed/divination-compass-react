@@ -187,15 +187,10 @@ def compute_chart(jd_ut, latitude, longitude, house_system="P"):
         'Pluto': swe.PLUTO,
     }
 
-    # Set topocentric location for more accurate calculations (especially for Moon)
-    swe.set_topo(longitude, latitude, 0)
-
+    # Use geocentric positions with speed for all planets (matches Astro.com standard)
     for name, planet_id in planet_ids.items():
-        # Use topocentric correction for Moon, geocentric for others
-        if name == 'Moon':
-            result = swe.calc_ut(jd_ut, planet_id, swe.FLG_TOPOCTR)
-        else:
-            result = swe.calc_ut(jd_ut, planet_id)
+        # Calculate with speed flag for accurate speed values
+        result = swe.calc_ut(jd_ut, planet_id, swe.FLG_SPEED)
 
         planets[name] = {
             'longitude': result[0][0],
@@ -417,13 +412,8 @@ def calculate_astrocartography_lines_proper(jd_ut, birth_lat=None, birth_lon=Non
 
     for planet_name, planet_id in planet_ids.items():
         # Get planet position in ECLIPTIC coordinates (longitude/latitude)
-        # For Moon, use topocentric position if birth location is provided
-        if planet_name == 'Moon' and birth_lat is not None and birth_lon is not None:
-            # Set topocentric location for Moon
-            swe.set_topo(birth_lon, birth_lat, 0)
-            result = swe.calc_ut(jd_ut, planet_id, swe.FLG_TOPOCTR)
-        else:
-            result = swe.calc_ut(jd_ut, planet_id)
+        # Use geocentric positions for all planets (matches Astro.com)
+        result = swe.calc_ut(jd_ut, planet_id, swe.FLG_SPEED)
 
         planet_lon = result[0][0]  # Ecliptic longitude in degrees (0-360)
         planet_lat = result[0][1]  # Ecliptic latitude in degrees
