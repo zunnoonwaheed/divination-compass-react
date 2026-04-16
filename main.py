@@ -187,8 +187,16 @@ def compute_chart(jd_ut, latitude, longitude, house_system="P"):
         'Pluto': swe.PLUTO,
     }
 
+    # Set topocentric location for more accurate calculations (especially for Moon)
+    swe.set_topo(longitude, latitude, 0)
+
     for name, planet_id in planet_ids.items():
-        result = swe.calc_ut(jd_ut, planet_id)
+        # Use topocentric correction for Moon, geocentric for others
+        if name == 'Moon':
+            result = swe.calc_ut(jd_ut, planet_id, swe.FLG_TOPOCTR)
+        else:
+            result = swe.calc_ut(jd_ut, planet_id)
+
         planets[name] = {
             'longitude': result[0][0],
             'latitude': result[0][1],
@@ -258,120 +266,139 @@ def natal_chart_alias(
         **chart_data
     }
 
-def calculate_mc_line_longitude(planet_ra, jd_ut):
+def find_zodiacal_line_longitude(planet_lon, target_angle_offset, jd_ut, latitude, house_system="P"):
     """
-    Calculate longitude where planet is on MC (Midheaven).
+    Find longitude where a planet conjuncts a specific angle (ASC/MC/DSC/IC) using Zodiacal method.
 
-    MC line formula: Longitude = (Planet RA - RAMC at Greenwich) * 15
-    where RAMC = Right Ascension of MC
+    This is the method used by Astro.com - it calculates houses at different longitudes
+    to find where the planet's ecliptic longitude matches the angle.
 
     Args:
-        planet_ra: Planet's Right Ascension in degrees
+        planet_lon: Planet's ecliptic longitude in degrees (0-360)
+        target_angle_offset: 0=ASC, 90=MC, 180=DSC, 270=IC (offset from ASC in degrees)
         jd_ut: Julian Day in UTC
+        latitude: Observer's latitude
+        house_system: House system to use (default "P" for Placidus)
 
     Returns:
-        Longitude in degrees (-180 to 180)
+        Longitude where the conjunction occurs, or None if not found
     """
-    # Get sidereal time at Greenwich
-    # swe.sidtime returns sidereal time in hours
-    gmst_hours = swe.sidtime(jd_ut)  # Greenwich Mean Sidereal Time in hours
-    gmst_degrees = gmst_hours * 15.0  # Convert hours to degrees
+    # Normalize planet longitude to 0-360
+    planet_lon = planet_lon % 360
 
-    # MC line: where planet's RA equals RAMC
-    # Longitude = Planet RA - RAMC (in degrees)
-    mc_longitude = planet_ra - gmst_degrees
+    # Binary search for the longitude where the angle matches the planet position
+    # We'll search from -180 to 180 longitude
+    left = -180.0
+    right = 180.0
+    tolerance = 0.01  # 0.01 degree precision
 
-    # Normalize to -180 to 180
-    while mc_longitude > 180:
-        mc_longitude -= 360
-    while mc_longitude < -180:
-        mc_longitude += 360
+    for _ in range(100):  # Max 100 iterations
+        mid = (left + right) / 2.0
 
-    return mc_longitude
+        try:
+            # Calculate houses at this longitude
+            houses, ascmc = swe.houses(jd_ut, latitude, mid, house_system.encode('ascii'))
 
-def calculate_asc_line_points(planet_ra, planet_dec, jd_ut, num_points=50):
+            # Get the target angle
+            if target_angle_offset == 0:  # ASC
+                angle = ascmc[0]
+            elif target_angle_offset == 90:  # MC
+                angle = ascmc[1]
+            elif target_angle_offset == 180:  # DSC
+                angle = (ascmc[0] + 180) % 360
+            else:  # IC
+                angle = (ascmc[1] + 180) % 360
+
+            # Normalize angle to 0-360
+            angle = angle % 360
+
+            # Calculate difference (accounting for 360-degree wraparound)
+            diff = angle - planet_lon
+            if diff > 180:
+                diff -= 360
+            elif diff < -180:
+                diff += 360
+
+            # Check if we're close enough
+            if abs(diff) < tolerance:
+                return mid
+
+            # Adjust search range based on the difference
+            # If angle > planet, we need to move west (decrease longitude)
+            # If angle < planet, we need to move east (increase longitude)
+            if diff > 0:
+                right = mid
+            else:
+                left = mid
+
+            # Check if search range is too small
+            if abs(right - left) < tolerance:
+                return mid
+
+        except Exception:
+            # If houses calculation fails, return None
+            return None
+
+    return None
+
+def calculate_zodiacal_line_points(planet_lon, target_angle_offset, jd_ut, num_points=50, house_system="P"):
     """
-    Calculate points along the Ascendant line for a planet.
+    Calculate points along an angle line using Zodiacal method (Astro.com style).
 
-    ASC line is where the planet is rising on the eastern horizon.
-    This requires solving for longitude at each latitude using oblique ascension.
+    This finds where a planet's ecliptic longitude conjuncts a specific angle (ASC/MC/DSC/IC)
+    at different latitudes across the globe.
 
     Args:
-        planet_ra: Planet's Right Ascension in degrees
-        planet_dec: Planet's Declination in degrees
+        planet_lon: Planet's ecliptic longitude in degrees (0-360)
+        target_angle_offset: 0=ASC, 90=MC, 180=DSC, 270=IC
         jd_ut: Julian Day in UTC
-        num_points: Number of points to calculate along the line
+        num_points: Number of points to calculate
+        house_system: House system (default "P" for Placidus)
 
     Returns:
-        List of (latitude, longitude) tuples
+        List of {'latitude': lat, 'longitude': lon} dictionaries
     """
     points = []
 
-    # Get obliquity of ecliptic (Earth's axial tilt)
-    obliquity = swe.calc_ut(jd_ut, swe.ECL_NUT)[0][0]  # Mean obliquity
+    # For MC and IC lines, they are relatively straight (meridians)
+    # For ASC and DSC lines, they curve based on latitude
+    if target_angle_offset in [90, 270]:  # MC or IC
+        # These are simpler - nearly vertical lines
+        # Calculate at latitude 0 (equator) as reference
+        lon_at_equator = find_zodiacal_line_longitude(planet_lon, target_angle_offset, jd_ut, 0.0, house_system)
 
-    # Calculate for latitudes from -60 to 60 (beyond this, calculations get unreliable)
-    latitudes = [lat for lat in range(-60, 61, int(120/num_points)) if lat != 0]
-
-    for lat in latitudes:
-        try:
-            # For ASC line, we need to find longitude where planet is on eastern horizon
-            # This involves calculating the Local Sidereal Time when planet rises
-
-            # Calculate oblique ascension (OA) for this planet at this latitude
-            # OA depends on planet's RA, Dec, and observer's latitude
-
-            lat_rad = math.radians(lat)
-            dec_rad = math.radians(planet_dec)
-
-            # Check if planet is circumpolar or never rises at this latitude
-            if abs(planet_dec) + abs(lat) > 90:
-                # Planet may be circumpolar (always up) or never visible
-                if (planet_dec > 0 and lat > 0) or (planet_dec < 0 and lat < 0):
-                    # Similar hemisphere - might be circumpolar
-                    if abs(lat) + abs(planet_dec) > 90:
-                        continue  # Skip this latitude
-
-            # Calculate hour angle when planet is on horizon
-            # cos(H) = -tan(lat) * tan(dec)
-            cos_h = -math.tan(lat_rad) * math.tan(dec_rad)
-
-            if abs(cos_h) > 1:
-                # Planet never rises or never sets at this latitude
-                continue
-
-            # Hour angle in degrees
-            hour_angle = math.degrees(math.acos(cos_h))
-
-            # Local Sidereal Time when planet rises = RA - Hour Angle
-            lst_rise = planet_ra - hour_angle
-
-            # Get Greenwich Sidereal Time
-            gmst_hours = swe.sidtime(jd_ut)
-            gmst_degrees = gmst_hours * 15.0
-
-            # Longitude = LST - GST (when planet is rising)
-            longitude = lst_rise - gmst_degrees
-
-            # Normalize to -180 to 180
-            while longitude > 180:
-                longitude -= 360
-            while longitude < -180:
-                longitude += 360
-
-            points.append({'latitude': lat, 'longitude': longitude})
-
-        except (ValueError, ZeroDivisionError):
-            # Skip problematic latitudes
-            continue
+        if lon_at_equator is not None:
+            # MC/IC lines are nearly vertical, but still need to be calculated at different latitudes
+            latitudes = [lat for lat in range(-60, 61, int(120/num_points))]
+            for lat in latitudes:
+                # Refine the longitude at this specific latitude
+                lon = find_zodiacal_line_longitude(planet_lon, target_angle_offset, jd_ut, lat, house_system)
+                if lon is not None:
+                    points.append({'latitude': lat, 'longitude': lon})
+    else:  # ASC or DSC
+        # These curve significantly with latitude
+        latitudes = [lat for lat in range(-60, 61, int(120/num_points)) if lat != 0]
+        for lat in latitudes:
+            lon = find_zodiacal_line_longitude(planet_lon, target_angle_offset, jd_ut, lat, house_system)
+            if lon is not None:
+                points.append({'latitude': lat, 'longitude': lon})
 
     return points
 
-def calculate_astrocartography_lines_proper(jd_ut):
+def calculate_astrocartography_lines_proper(jd_ut, birth_lat=None, birth_lon=None):
     """
-    Calculate accurate astrocartography lines using spherical astronomy.
+    Calculate accurate astrocartography lines using Zodiacal method (Astro.com style).
 
-    Returns lines for MC, IC, ASC, DSC for each planet.
+    This method calculates where each planet conjuncts the ASC/MC/DSC/IC angles
+    across different locations on Earth.
+
+    Args:
+        jd_ut: Julian Day in UTC
+        birth_lat: Birth latitude (optional, used for Moon topocentric correction)
+        birth_lon: Birth longitude (optional, used for Moon topocentric correction)
+
+    Returns:
+        List of line points for MC, IC, ASC, DSC for each planet
     """
     planet_ids = {
         'Sun': swe.SUN,
@@ -389,65 +416,67 @@ def calculate_astrocartography_lines_proper(jd_ut):
     lines = []
 
     for planet_name, planet_id in planet_ids.items():
-        # Get planet position in EQUATORIAL coordinates (RA/Dec)
-        # SEFLG_EQUATORIAL = 2048
-        result_eq = swe.calc_ut(jd_ut, planet_id, swe.FLG_EQUATORIAL)
+        # Get planet position in ECLIPTIC coordinates (longitude/latitude)
+        # For Moon, use topocentric position if birth location is provided
+        if planet_name == 'Moon' and birth_lat is not None and birth_lon is not None:
+            # Set topocentric location for Moon
+            swe.set_topo(birth_lon, birth_lat, 0)
+            result = swe.calc_ut(jd_ut, planet_id, swe.FLG_TOPOCTR)
+        else:
+            result = swe.calc_ut(jd_ut, planet_id)
 
-        planet_ra = result_eq[0][0]   # Right Ascension in degrees (0-360)
-        planet_dec = result_eq[0][1]  # Declination in degrees (-90 to +90)
+        planet_lon = result[0][0]  # Ecliptic longitude in degrees (0-360)
+        planet_lat = result[0][1]  # Ecliptic latitude in degrees
 
-        logger.info(f"  {planet_name}: RA={planet_ra:.2f}°, Dec={planet_dec:.2f}°")
+        logger.info(f"  {planet_name}: Lon={planet_lon:.2f}°, Lat={planet_lat:.2f}°")
 
-        # 1. MC LINE (Midheaven) - vertical line where planet culminates
-        mc_lon = calculate_mc_line_longitude(planet_ra, jd_ut)
-
-        # MC line is a meridian (vertical line) - generate points at different latitudes
-        for lat in range(-60, 61, 5):
+        # Calculate lines using Zodiacal method
+        # 1. MC LINE (90° from ASC) - where planet conjuncts MC
+        mc_points = calculate_zodiacal_line_points(planet_lon, 90, jd_ut, num_points=25)
+        for point in mc_points:
             lines.append({
                 'planet': planet_name,
                 'line_type': 'MC',
-                'latitude': lat,
-                'longitude': mc_lon,
-                'planet_ra': planet_ra,
-                'planet_dec': planet_dec
+                'latitude': point['latitude'],
+                'longitude': point['longitude'],
+                'planet_lon': planet_lon,
+                'planet_lat': planet_lat
             })
 
-        # 2. IC LINE (Imum Coeli) - opposite of MC (180° away)
-        ic_lon = mc_lon + 180 if mc_lon < 0 else mc_lon - 180
-
-        for lat in range(-60, 61, 5):
+        # 2. IC LINE (270° from ASC) - where planet conjuncts IC
+        ic_points = calculate_zodiacal_line_points(planet_lon, 270, jd_ut, num_points=25)
+        for point in ic_points:
             lines.append({
                 'planet': planet_name,
                 'line_type': 'IC',
-                'latitude': lat,
-                'longitude': ic_lon,
-                'planet_ra': planet_ra,
-                'planet_dec': planet_dec
+                'latitude': point['latitude'],
+                'longitude': point['longitude'],
+                'planet_lon': planet_lon,
+                'planet_lat': planet_lat
             })
 
-        # 3. ASC LINE (Ascendant) - curved line where planet rises
-        asc_points = calculate_asc_line_points(planet_ra, planet_dec, jd_ut)
+        # 3. ASC LINE (0° from ASC) - where planet conjuncts ASC
+        asc_points = calculate_zodiacal_line_points(planet_lon, 0, jd_ut, num_points=40)
         for point in asc_points:
             lines.append({
                 'planet': planet_name,
                 'line_type': 'ASC',
                 'latitude': point['latitude'],
                 'longitude': point['longitude'],
-                'planet_ra': planet_ra,
-                'planet_dec': planet_dec
+                'planet_lon': planet_lon,
+                'planet_lat': planet_lat
             })
 
-        # 4. DSC LINE (Descendant) - opposite of ASC (where planet sets)
-        # DSC is 180° opposite in longitude from ASC
-        for point in asc_points:
-            dsc_lon = point['longitude'] + 180 if point['longitude'] < 0 else point['longitude'] - 180
+        # 4. DSC LINE (180° from ASC) - where planet conjuncts DSC
+        dsc_points = calculate_zodiacal_line_points(planet_lon, 180, jd_ut, num_points=40)
+        for point in dsc_points:
             lines.append({
                 'planet': planet_name,
                 'line_type': 'DSC',
                 'latitude': point['latitude'],
-                'longitude': dsc_lon,
-                'planet_ra': planet_ra,
-                'planet_dec': planet_dec
+                'longitude': point['longitude'],
+                'planet_lon': planet_lon,
+                'planet_lat': planet_lat
             })
 
     return lines
@@ -509,12 +538,12 @@ def astrocartography(
     # Use UTC Julian Day for all calculations
     jd_ut = utc_info['utc_jd']
 
-    logger.info(f"🔬 Calculating planetary RA/Dec for astrocartography...")
+    logger.info(f"🔬 Calculating astrocartography lines using Zodiacal method (Astro.com style)...")
 
-    # Calculate proper astrocartography lines using spherical astronomy
-    lines = calculate_astrocartography_lines_proper(jd_ut)
+    # Calculate astrocartography lines using Zodiacal method (matching Astro.com)
+    lines = calculate_astrocartography_lines_proper(jd_ut, latitude, longitude)
 
-    logger.info(f"✅ Astrocartography calculated: {len(lines)} lines found using proper spherical astronomy")
+    logger.info(f"✅ Astrocartography calculated: {len(lines)} lines found using Zodiacal method")
     logger.info(f"{'='*60}\n")
 
     return {
