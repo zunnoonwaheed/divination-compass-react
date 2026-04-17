@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Railway Backend</title>
+    <script src='https://api.mapbox.com/mapbox-gl-js/v3.0.0/mapbox-gl.js'></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v3.0.0/mapbox-gl.css' rel='stylesheet' />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+        }
+        h1 { color: #9333ea; }
+        .section {
+            background: #2a2a2a;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 1px solid #444;
+        }
+        button {
+            background: #9333ea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #7e22ce; }
+        #map { width: 100%; height: 500px; margin-top: 20px; }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        pre {
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            max-height: 300px;
+        }
+        .loading { color: #fbbf24; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Railway Backend Test - LIVE</h1>
+    <p>Testing: <code>swiss-ephemeris-api-production-e398.up.railway.app</code></p>
+
+    <div class="section">
+        <h2>Step 1: Test Backend Connection</h2>
+        <button onclick="testBackend()">Test Backend API</button>
+        <div id="backend-result"></div>
+    </div>
+
+    <div class="section">
+        <h2>Step 2: Test Natal Chart</h2>
+        <button onclick="testNatalChart()">Get Natal Chart Data</button>
+        <div id="natal-result"></div>
+    </div>
+
+    <div class="section">
+        <h2>Step 3: Test Astrocartography + Map</h2>
+        <button onclick="testAstrocartography()">Load Map with Ley Lines</button>
+        <div id="astro-result"></div>
+        <div id="map"></div>
+    </div>
+
+    <script>
+        const API_URL = 'https://swiss-ephemeris-api-production-e398.up.railway.app';
+        const MAPBOX_TOKEN = 'YOUR_MAPBOX_TOKEN_HERE';
+
+        async function testBackend() {
+            const result = document.getElementById('backend-result');
+            result.innerHTML = '<p class="loading">Testing...</p>';
+
+            try {
+                const response = await fetch(`${API_URL}/`);
+                const data = await response.json();
+
+                result.innerHTML = `
+                    <p class="success">✅ Backend is WORKING!</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                result.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+            }
+        }
+
+        async function testNatalChart() {
+            const result = document.getElementById('natal-result');
+            result.innerHTML = '<p class="loading">Fetching natal chart...</p>';
+
+            try {
+                const url = `${API_URL}/api/natal-chart?date=1990-01-01&time=12:00:00&latitude=31.5497&longitude=74.3436`;
+                const response = await fetch(url);
+                const data = await response.json();
+
+                result.innerHTML = `
+                    <p class="success">✅ Natal Chart Data Received!</p>
+                    <p><strong>Sun:</strong> ${data.planets.Sun.longitude.toFixed(2)}°</p>
+                    <p><strong>Moon:</strong> ${data.planets.Moon.longitude.toFixed(2)}°</p>
+                    <p><strong>Ascendant:</strong> ${data.ascendant.toFixed(2)}°</p>
+                    <details>
+                        <summary>View Full Data</summary>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </details>
+                `;
+            } catch (error) {
+                result.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+            }
+        }
+
+        async function testAstrocartography() {
+            const result = document.getElementById('astro-result');
+            result.innerHTML = '<p class="loading">Loading astrocartography data and map...</p>';
+
+            try {
+                const url = `${API_URL}/api/astrocartography?date=1990-01-01&time=12:00:00&latitude=31.5497&longitude=74.3436`;
+                const response = await fetch(url);
+                const data = await response.json();
+
+                result.innerHTML = `
+                    <p class="success">✅ Astrocartography Data Received!</p>
+                    <p><strong>Ley Lines:</strong> ${data.lines.length}</p>
+                    <p><strong>Birth Location:</strong> ${data.birth_location.latitude.toFixed(2)}, ${data.birth_location.longitude.toFixed(2)}</p>
+                `;
+
+                // Initialize map
+                mapboxgl.accessToken = MAPBOX_TOKEN;
+                const map = new mapboxgl.Map({
+                    container: 'map',
+                    style: 'mapbox://styles/mapbox/dark-v11',
+                    center: [data.birth_location.longitude, data.birth_location.latitude],
+                    zoom: 2
+                });
+
+                map.addControl(new mapboxgl.NavigationControl());
+
+                // Add birth location marker
+                new mapboxgl.Marker({ color: 'red' })
+                    .setLngLat([data.birth_location.longitude, data.birth_location.latitude])
+                    .setPopup(new mapboxgl.Popup().setHTML('<h3>Birth Location</h3><p>Lahore, Pakistan</p>'))
+                    .addTo(map);
+
+                // Add ley lines
+                map.on('load', () => {
+                    const colors = {
+                        Sun: '#FFD700',
+                        Moon: '#C0C0C0',
+                        Mercury: '#87CEEB',
+                        Venus: '#FF69B4',
+                        Mars: '#FF4500',
+                        Jupiter: '#FF8C00',
+                        Saturn: '#4B0082',
+                        Uranus: '#00CED1',
+                        Neptune: '#4169E1',
+                        Pluto: '#8B0000'
+                    };
+
+                    const linesByKey = {};
+                    data.lines.forEach(line => {
+                        const key = `${line.planet}-${line.line_type}`;
+                        if (!linesByKey[key]) {
+                            linesByKey[key] = {
+                                planet: line.planet,
+                                coordinates: []
+                            };
+                        }
+                        linesByKey[key].coordinates.push([line.longitude, line.latitude]);
+                    });
+
+                    Object.entries(linesByKey).forEach(([key, lineData]) => {
+                        if (lineData.coordinates.length === 0) return;
+
+                        map.addSource(key, {
+                            type: 'geojson',
+                            data: {
+                                type: 'Feature',
+                                geometry: {
+                                    type: 'LineString',
+                                    coordinates: lineData.coordinates.sort((a, b) => b[1] - a[1])
+                                }
+                            }
+                        });
+
+                        map.addLayer({
+                            id: key,
+                            type: 'line',
+                            source: key,
+                            paint: {
+                                'line-color': colors[lineData.planet] || '#FFFFFF',
+                                'line-width': 2,
+                                'line-opacity': 0.8
+                            }
+                        });
+                    });
+
+                    result.innerHTML += '<p class="success">✅ Map Loaded with Ley Lines!</p>';
+                });
+
+            } catch (error) {
+                result.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

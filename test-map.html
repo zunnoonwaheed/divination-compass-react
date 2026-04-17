@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Astrocartography Test - Lionel</title>
+    <meta charset='utf-8' />
+    <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+    <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        #container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            margin: 0 0 20px 0;
+            font-size: 28px;
+        }
+        #info {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .loading {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        #map {
+            width: 100%;
+            height: 700px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .info-item {
+            background: #333;
+            padding: 12px;
+            border-radius: 6px;
+        }
+        .info-label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+        .info-value {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .legend {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .legend-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <h1>🗺️ Astrocartography Test - Lionel</h1>
+
+        <div id="info">
+            <div class="status loading" id="status">⏳ Loading data from backend...</div>
+
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Test Case</div>
+                    <div class="info-value">Lionel</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Birth Date</div>
+                    <div class="info-value">December 4, 1987</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Birth Time</div>
+                    <div class="info-value">12:21 AM (00:21)</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Birth Place</div>
+                    <div class="info-value">Los Angeles, CA</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="map"></div>
+
+        <div class="legend">
+            <h3 style="margin: 0 0 10px 0;">Planet Colors</h3>
+            <div class="legend-grid" id="legend"></div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_URL = 'http://localhost:8000'; // Change to Railway URL for production
+        const MAPBOX_TOKEN = 'pk.eyJ1IjoiZXhhbXBsZSIsImEiOiJjbGV4YW1wbGUifQ.example'; // Replace with your token
+
+        // Planet colors
+        const PLANET_COLORS = {
+            Sun: '#FFD700',
+            Moon: '#C0C0C0',
+            Mercury: '#87CEEB',
+            Venus: '#FF69B4',
+            Mars: '#FF4500',
+            Jupiter: '#FF8C00',
+            Saturn: '#4B0082',
+            Uranus: '#00CED1',
+            Neptune: '#4169E1',
+            Pluto: '#8B0000'
+        };
+
+        async function testAstrocartography() {
+            const statusEl = document.getElementById('status');
+
+            try {
+                statusEl.innerHTML = '⏳ Fetching data from API...';
+                statusEl.className = 'status loading';
+
+                // Fetch astrocartography data
+                const response = await fetch(
+                    `${API_URL}/api/astrocartography?date=1987-12-04&time=00:21:00&latitude=34.0522&longitude=-118.2437`
+                );
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                console.log('✅ API Response:', data);
+
+                // Display success status
+                statusEl.innerHTML = `
+                    <strong>✅ Backend Connected Successfully!</strong><br>
+                    <div style="margin-top: 10px; font-size: 14px;">
+                        Total Lines: ${data.lines.length}<br>
+                        UTC DateTime: ${data.timezone_info.utc_datetime}<br>
+                        Timezone: ${data.timezone_info.timezone} (${data.timezone_info.utc_offset_hours} hours)<br>
+                        Julian Day: ${data.jd_ut.toFixed(6)}
+                    </div>
+                `;
+                statusEl.className = 'status success';
+
+                // Populate legend
+                const legendEl = document.getElementById('legend');
+                Object.entries(PLANET_COLORS).forEach(([planet, color]) => {
+                    legendEl.innerHTML += `
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: ${color}"></div>
+                            <span>${planet}</span>
+                        </div>
+                    `;
+                });
+
+                // Initialize Mapbox
+                if (!MAPBOX_TOKEN || MAPBOX_TOKEN.includes('example')) {
+                    throw new Error('Please add your Mapbox token to the HTML file');
+                }
+
+                mapboxgl.accessToken = MAPBOX_TOKEN;
+
+                const map = new mapboxgl.Map({
+                    container: 'map',
+                    style: 'mapbox://styles/mapbox/dark-v11',
+                    center: [data.birth_location.longitude, data.birth_location.latitude],
+                    zoom: 2,
+                    projection: 'mercator'
+                });
+
+                // Add controls
+                map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+
+                // Add birth location marker
+                new mapboxgl.Marker({ color: '#FF0000', scale: 1.5 })
+                    .setLngLat([data.birth_location.longitude, data.birth_location.latitude])
+                    .setPopup(
+                        new mapboxgl.Popup({ offset: 25 }).setHTML(`
+                            <div style="padding: 10px; color: #333;">
+                                <h3 style="margin: 0 0 8px 0; color: #FF0000;">🎂 Birth Location</h3>
+                                <p style="margin: 0; font-size: 13px;">
+                                    <strong>Los Angeles, California</strong><br>
+                                    Lat: ${data.birth_location.latitude.toFixed(4)}°<br>
+                                    Lon: ${data.birth_location.longitude.toFixed(4)}°<br>
+                                    <br>
+                                    <strong>Birth Time:</strong><br>
+                                    Local: 1987-12-04 00:21:00<br>
+                                    UTC: ${data.timezone_info.utc_datetime}
+                                </p>
+                            </div>
+                        `)
+                    )
+                    .addTo(map);
+
+                map.on('load', () => {
+                    // Group lines by planet and type
+                    const lineGroups = {};
+                    data.lines.forEach(line => {
+                        const key = `${line.planet}-${line.line_type}`;
+                        if (!lineGroups[key]) {
+                            lineGroups[key] = {
+                                planet: line.planet,
+                                lineType: line.line_type,
+                                coordinates: [],
+                                ra: line.planet_ra,
+                                dec: line.planet_dec
+                            };
+                        }
+                        lineGroups[key].coordinates.push([line.longitude, line.latitude]);
+                    });
+
+                    console.log(`✅ Drawing ${Object.keys(lineGroups).length} line groups`);
+
+                    // Add each line to the map
+                    Object.entries(lineGroups).forEach(([key, group]) => {
+                        const coords = group.coordinates.sort((a, b) => b[1] - a[1]);
+
+                        map.addSource(key, {
+                            type: 'geojson',
+                            data: {
+                                type: 'Feature',
+                                properties: {
+                                    planet: group.planet,
+                                    lineType: group.lineType,
+                                    ra: group.ra,
+                                    dec: group.dec
+                                },
+                                geometry: {
+                                    type: 'LineString',
+                                    coordinates: coords
+                                }
+                            }
+                        });
+
+                        const color = PLANET_COLORS[group.planet] || '#FFFFFF';
+                        const dashArray = group.lineType === 'DSC' ? [4, 2] :
+                                         group.lineType === 'IC' ? [2, 2] : null;
+
+                        map.addLayer({
+                            id: key,
+                            type: 'line',
+                            source: key,
+                            paint: {
+                                'line-color': color,
+                                'line-width': group.lineType === 'ASC' ? 3 : 2,
+                                'line-opacity': 0.85,
+                                ...(dashArray && { 'line-dasharray': dashArray })
+                            }
+                        });
+
+                        // Add click handler
+                        map.on('click', key, (e) => {
+                            const props = e.features[0].properties;
+                            new mapboxgl.Popup()
+                                .setLngLat(e.lngLat)
+                                .setHTML(`
+                                    <div style="padding: 10px; color: #333;">
+                                        <h3 style="margin: 0 0 8px 0; color: ${color};">
+                                            ${props.planet} ${props.lineType} Line
+                                        </h3>
+                                        <p style="margin: 0; font-size: 13px;">
+                                            <strong>${
+                                                props.lineType === 'ASC' ? 'Rising (Ascendant)' :
+                                                props.lineType === 'MC' ? 'Midheaven (Career)' :
+                                                props.lineType === 'DSC' ? 'Setting (Descendant)' :
+                                                'Lower Heaven (IC)'
+                                            }</strong><br>
+                                            <br>
+                                            RA: ${parseFloat(props.ra).toFixed(2)}°<br>
+                                            Dec: ${parseFloat(props.dec).toFixed(2)}°<br>
+                                            Location: ${e.lngLat.lat.toFixed(2)}°, ${e.lngLat.lng.toFixed(2)}°
+                                        </p>
+                                    </div>
+                                `)
+                                .addTo(map);
+                        });
+
+                        // Cursor changes
+                        map.on('mouseenter', key, () => {
+                            map.getCanvas().style.cursor = 'pointer';
+                        });
+                        map.on('mouseleave', key, () => {
+                            map.getCanvas().style.cursor = '';
+                        });
+                    });
+
+                    console.log('✅ Map loaded successfully with all astrocartography lines');
+                });
+
+            } catch (error) {
+                console.error('❌ Test failed:', error);
+                statusEl.innerHTML = `
+                    <strong>❌ Error Loading Data</strong><br>
+                    <div style="margin-top: 10px; font-size: 14px;">
+                        ${error.message}<br>
+                        <br>
+                        <strong>Troubleshooting:</strong><br>
+                        1. Make sure backend is running at ${API_URL}<br>
+                        2. Check that Mapbox token is configured<br>
+                        3. Look at browser console for details (F12)
+                    </div>
+                `;
+                statusEl.className = 'status error';
+            }
+        }
+
+        // Run test on page load
+        testAstrocartography();
+    </script>
+</body>
+</html>

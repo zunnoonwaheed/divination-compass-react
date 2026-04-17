@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lionel Test Case - Frontend Verification</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: #ffd700;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #a0a0a0;
+            margin-bottom: 30px;
+        }
+
+        .test-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .test-section h2 {
+            color: #4fc3f7;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #b0b0b0;
+            font-weight: 500;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 5px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #e0e0e0;
+            font-size: 16px;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+
+        .status.success {
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid #4caf50;
+            color: #4caf50;
+        }
+
+        .status.error {
+            background: rgba(244, 67, 54, 0.2);
+            border: 1px solid #f44336;
+            color: #f44336;
+        }
+
+        .status.info {
+            background: rgba(33, 150, 243, 0.2);
+            border: 1px solid #2196f3;
+            color: #2196f3;
+        }
+
+        .status.warning {
+            background: rgba(255, 152, 0, 0.2);
+            border: 1px solid #ff9800;
+            color: #ff9800;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        th {
+            background: rgba(255, 255, 255, 0.05);
+            color: #ffd700;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .pass {
+            color: #4caf50;
+            font-weight: bold;
+        }
+
+        .fail {
+            color: #f44336;
+            font-weight: bold;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .badge.success {
+            background: #4caf50;
+            color: white;
+        }
+
+        .badge.error {
+            background: #f44336;
+            color: white;
+        }
+
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .summary-card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .summary-card h3 {
+            font-size: 2em;
+            margin-bottom: 5px;
+        }
+
+        .summary-card.pass h3 {
+            color: #4caf50;
+        }
+
+        .summary-card.fail h3 {
+            color: #f44336;
+        }
+
+        .summary-card.total h3 {
+            color: #2196f3;
+        }
+
+        #results {
+            display: none;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .code-block {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #667eea;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+
+        .code-block code {
+            color: #4fc3f7;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Lionel Test Case Verification</h1>
+        <p class="subtitle">Frontend Testing for Astro.com Baseline</p>
+
+        <!-- Test Configuration -->
+        <div class="test-section">
+            <h2>⚙️ Configuration</h2>
+            <div class="input-group">
+                <label for="apiUrl">API Base URL:</label>
+                <input type="text" id="apiUrl" placeholder="http://localhost:8000 or https://your-app.up.railway.app" value="http://localhost:8000">
+            </div>
+            <button onclick="runTests()">🚀 Run Tests</button>
+        </div>
+
+        <!-- Expected Values -->
+        <div class="test-section">
+            <h2>📊 Expected Values (Astro.com Baseline)</h2>
+            <div class="status info">
+                <strong>Birth Data:</strong> December 4, 1987 at 12:21 AM PST, Los Angeles, CA (34.0522°N, 118.2437°W)<br>
+                <strong>Expected UTC:</strong> 1987-12-04 08:21:00 UTC (NOT 00:21)
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Planet</th>
+                        <th>Longitude (°)</th>
+                        <th>Zodiac Position</th>
+                        <th>Tolerance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>☉ Sun</td><td>251.6333</td><td>11°38' Sagittarius</td><td>±0.1°</td></tr>
+                    <tr><td>☽ Moon</td><td>30.0667</td><td>0°04' Taurus</td><td>±0.1°</td></tr>
+                    <tr><td>☿ Mercury</td><td>241.2167</td><td>1°13' Sagittarius</td><td>±0.1°</td></tr>
+                    <tr><td>♀ Venus</td><td>277.7833</td><td>7°47' Capricorn</td><td>±0.1°</td></tr>
+                    <tr><td>♂ Mars</td><td>216.6833</td><td>6°41' Scorpio</td><td>±0.1°</td></tr>
+                    <tr><td>♃ Jupiter</td><td>19.9667</td><td>19°58' Aries</td><td>±0.1°</td></tr>
+                    <tr><td>♄ Saturn</td><td>262.2000</td><td>22°12' Sagittarius</td><td>±0.1°</td></tr>
+                    <tr><td>♅ Uranus</td><td>265.9833</td><td>25°59' Sagittarius</td><td>±0.1°</td></tr>
+                    <tr><td>♆ Neptune</td><td>276.7500</td><td>6°45' Capricorn</td><td>±0.1°</td></tr>
+                    <tr><td>♇ Pluto</td><td>221.1333</td><td>11°08' Scorpio</td><td>±0.1°</td></tr>
+                    <tr style="border-top: 2px solid rgba(255,255,255,0.3);"><td><strong>Ascendant</strong></td><td>171.2500</td><td>21°15' Virgo</td><td>±0.5°</td></tr>
+                    <tr><td><strong>MC</strong></td><td>80.4500</td><td>20°27' Gemini</td><td>±0.5°</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results">
+            <!-- Summary Cards -->
+            <div class="summary">
+                <div class="summary-card total">
+                    <div>Total Tests</div>
+                    <h3 id="totalTests">0</h3>
+                </div>
+                <div class="summary-card pass">
+                    <div>Passed</div>
+                    <h3 id="passedTests">0</h3>
+                </div>
+                <div class="summary-card fail">
+                    <div>Failed</div>
+                    <h3 id="failedTests">0</h3>
+                </div>
+            </div>
+
+            <!-- Test Results -->
+            <div class="test-section">
+                <h2>✅ Test Results</h2>
+                <div id="testStatus"></div>
+                <div id="testDetails"></div>
+            </div>
+
+            <!-- API Response -->
+            <div class="test-section">
+                <h2>📡 API Response Data</h2>
+                <div id="apiResponse"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const EXPECTED_VALUES = {
+            planets: {
+                'Sun': 251.6333,
+                'Moon': 30.0667,
+                'Mercury': 241.2167,
+                'Venus': 277.7833,
+                'Mars': 216.6833,
+                'Jupiter': 19.9667,
+                'Saturn': 262.2000,
+                'Uranus': 265.9833,
+                'Neptune': 276.7500,
+                'Pluto': 221.1333
+            },
+            angles: {
+                'Ascendant': 171.2500,
+                'MC': 80.4500
+            },
+            utc: '1987-12-04 08:21:00 UTC'
+        };
+
+        const TOLERANCE = {
+            planets: 0.1,
+            angles: 0.5
+        };
+
+        function checkTolerance(actual, expected, tolerance) {
+            const diff = Math.abs(actual - expected);
+            return {
+                pass: diff <= tolerance,
+                difference: diff.toFixed(4)
+            };
+        }
+
+        function degreesToZodiac(degrees) {
+            const normalized = ((degrees % 360) + 360) % 360;
+            const signs = ['Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo',
+                          'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces'];
+            const signIndex = Math.floor(normalized / 30);
+            const signDegrees = normalized % 30;
+            const degree = Math.floor(signDegrees);
+            const minute = Math.round((signDegrees - degree) * 60);
+
+            return `${degree}°${minute.toString().padStart(2, '0')}' ${signs[signIndex]}`;
+        }
+
+        async function runTests() {
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+
+            if (!apiUrl) {
+                alert('Please enter an API URL');
+                return;
+            }
+
+            // Show loading
+            document.getElementById('results').style.display = 'block';
+            document.getElementById('testStatus').innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Fetching data from API...</p>
+                </div>
+            `;
+            document.getElementById('testDetails').innerHTML = '';
+            document.getElementById('apiResponse').innerHTML = '';
+
+            try {
+                // Fetch natal chart data
+                const url = `${apiUrl}/api/natal-chart?date=1987-12-04&time=00:21:00&latitude=34.0522&longitude=-118.2437`;
+                console.log('Fetching:', url);
+
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('Data received:', data);
+
+                // Run tests
+                const results = {
+                    passed: 0,
+                    failed: 0,
+                    tests: []
+                };
+
+                // Test 1: UTC Conversion
+                const utcTest = {
+                    name: 'UTC Conversion',
+                    expected: EXPECTED_VALUES.utc,
+                    actual: data.timezone_info?.utc_datetime || 'NOT FOUND',
+                    pass: data.timezone_info?.utc_datetime === EXPECTED_VALUES.utc
+                };
+                results.tests.push(utcTest);
+                if (utcTest.pass) results.passed++;
+                else results.failed++;
+
+                // Test 2-11: Planetary positions
+                Object.entries(EXPECTED_VALUES.planets).forEach(([planet, expected]) => {
+                    const actual = data.planets?.[planet]?.longitude;
+                    if (actual === undefined) {
+                        results.tests.push({
+                            name: planet,
+                            expected: expected,
+                            actual: 'NOT FOUND',
+                            pass: false,
+                            difference: 'N/A'
+                        });
+                        results.failed++;
+                    } else {
+                        const check = checkTolerance(actual, expected, TOLERANCE.planets);
+                        results.tests.push({
+                            name: planet,
+                            expected: expected,
+                            actual: actual,
+                            actualZodiac: degreesToZodiac(actual),
+                            pass: check.pass,
+                            difference: check.difference
+                        });
+                        if (check.pass) results.passed++;
+                        else results.failed++;
+                    }
+                });
+
+                // Test 12: Ascendant
+                const ascActual = data.ascendant;
+                if (ascActual !== undefined) {
+                    const check = checkTolerance(ascActual, EXPECTED_VALUES.angles.Ascendant, TOLERANCE.angles);
+                    results.tests.push({
+                        name: 'Ascendant',
+                        expected: EXPECTED_VALUES.angles.Ascendant,
+                        actual: ascActual,
+                        actualZodiac: degreesToZodiac(ascActual),
+                        pass: check.pass,
+                        difference: check.difference
+                    });
+                    if (check.pass) results.passed++;
+                    else results.failed++;
+                } else {
+                    results.tests.push({
+                        name: 'Ascendant',
+                        expected: EXPECTED_VALUES.angles.Ascendant,
+                        actual: 'NOT FOUND',
+                        pass: false
+                    });
+                    results.failed++;
+                }
+
+                // Test 13: MC
+                const mcActual = data.mc;
+                if (mcActual !== undefined) {
+                    const check = checkTolerance(mcActual, EXPECTED_VALUES.angles.MC, TOLERANCE.angles);
+                    results.tests.push({
+                        name: 'MC',
+                        expected: EXPECTED_VALUES.angles.MC,
+                        actual: mcActual,
+                        actualZodiac: degreesToZodiac(mcActual),
+                        pass: check.pass,
+                        difference: check.difference
+                    });
+                    if (check.pass) results.passed++;
+                    else results.failed++;
+                } else {
+                    results.tests.push({
+                        name: 'MC',
+                        expected: EXPECTED_VALUES.angles.MC,
+                        actual: 'NOT FOUND',
+                        pass: false
+                    });
+                    results.failed++;
+                }
+
+                // Display results
+                displayResults(results, data);
+
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('testStatus').innerHTML = `
+                    <div class="status error">
+                        <strong>❌ Error:</strong> ${error.message}<br><br>
+                        <strong>Possible causes:</strong><br>
+                        • API is not running at the specified URL<br>
+                        • CORS is blocking the request<br>
+                        • Network connection issue<br>
+                        • Invalid API URL
+                    </div>
+                `;
+                document.getElementById('testDetails').innerHTML = '';
+            }
+        }
+
+        function displayResults(results, data) {
+            // Update summary cards
+            document.getElementById('totalTests').textContent = results.passed + results.failed;
+            document.getElementById('passedTests').textContent = results.passed;
+            document.getElementById('failedTests').textContent = results.failed;
+
+            // Status message
+            const successRate = ((results.passed / (results.passed + results.failed)) * 100).toFixed(1);
+            let statusHtml = '';
+
+            if (results.failed === 0) {
+                statusHtml = `
+                    <div class="status success">
+                        <strong>🎉 ALL TESTS PASSED!</strong><br>
+                        Your API matches Astro.com baseline values perfectly!<br>
+                        Success Rate: ${successRate}%
+                    </div>
+                `;
+            } else if (successRate >= 80) {
+                statusHtml = `
+                    <div class="status warning">
+                        <strong>⚠️ MOSTLY PASSING</strong><br>
+                        ${results.failed} test(s) failed. Check the details below.<br>
+                        Success Rate: ${successRate}%
+                    </div>
+                `;
+            } else {
+                statusHtml = `
+                    <div class="status error">
+                        <strong>❌ TESTS FAILED</strong><br>
+                        ${results.failed} test(s) failed. Significant issues detected.<br>
+                        Success Rate: ${successRate}%
+                    </div>
+                `;
+            }
+
+            document.getElementById('testStatus').innerHTML = statusHtml;
+
+            // Test details table
+            let tableHtml = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Test</th>
+                            <th>Expected</th>
+                            <th>Actual</th>
+                            <th>Zodiac</th>
+                            <th>Diff</th>
+                            <th>Result</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            results.tests.forEach(test => {
+                const resultClass = test.pass ? 'pass' : 'fail';
+                const resultIcon = test.pass ? '✅' : '❌';
+
+                tableHtml += `
+                    <tr>
+                        <td><strong>${test.name}</strong></td>
+                        <td>${typeof test.expected === 'number' ? test.expected.toFixed(4) + '°' : test.expected}</td>
+                        <td>${typeof test.actual === 'number' ? test.actual.toFixed(4) + '°' : test.actual}</td>
+                        <td>${test.actualZodiac || '-'}</td>
+                        <td>${test.difference || '-'}</td>
+                        <td class="${resultClass}">${resultIcon} ${test.pass ? 'PASS' : 'FAIL'}</td>
+                    </tr>
+                `;
+            });
+
+            tableHtml += `
+                    </tbody>
+                </table>
+            `;
+
+            document.getElementById('testDetails').innerHTML = tableHtml;
+
+            // API Response
+            document.getElementById('apiResponse').innerHTML = `
+                <div class="code-block">
+                    <code>${JSON.stringify(data, null, 2)}</code>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
