@@ -33,7 +33,9 @@ function getPlanetColor(planet: string): string {
     Saturn: '#4B0082',   // Indigo
     Uranus: '#00CED1',   // Dark Turquoise
     Neptune: '#4169E1',  // Royal Blue
-    Pluto: '#8B0000'     // Dark Red
+    Pluto: '#8B0000',    // Dark Red
+    Chiron: '#7CFC00',   // Lawn Green
+    'North Node': '#DA70D6' // Orchid
   };
   return colors[planet] || '#FFFFFF';
 }
@@ -256,7 +258,9 @@ export function AstrocartographyMap({
             Saturn: '#4B0082',
             Uranus: '#00CED1',
             Neptune: '#4169E1',
-            Pluto: '#8B0000'
+            Pluto: '#8B0000',
+            Chiron: '#7CFC00',
+            'North Node': '#DA70D6'
           }).map(([planet, color]) => (
             <div key={planet} className="flex items-center gap-2">
               <div

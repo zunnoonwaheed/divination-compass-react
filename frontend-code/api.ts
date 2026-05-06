@@ -26,6 +26,7 @@ export interface NatalChartParams {
   time: string;      // Format: HH:MM:SS (e.g., "12:00:00")
   latitude: number;  // Decimal degrees (e.g., 31.5497 for Lahore)
   longitude: number; // Decimal degrees (e.g., 74.3436 for Lahore)
+  house_system?: 'placidus' | 'koch' | 'whole_sign' | 'equal' | 'regiomontanus';
 }
 
 export interface PlanetPosition {
@@ -40,8 +41,12 @@ export interface NatalChartData {
   input: NatalChartParams;
   planets: Record<string, PlanetPosition>;
   houses: number[];
+  house_system?: string;
+  house_system_used?: string;
   ascendant: number;
   mc: number;
+  points?: Record<string, any>;
+  warnings?: string[];
 }
 
 export interface AstrocartographyLine {
@@ -49,7 +54,8 @@ export interface AstrocartographyLine {
   line_type: 'ASC' | 'MC' | 'DSC' | 'IC';
   latitude: number;
   longitude: number;
-  planet_longitude: number;
+  planet_lon?: number;
+  planet_lat?: number;
 }
 
 export interface AstrocartographyData {
@@ -75,6 +81,7 @@ export async function fetchNatalChart(params: NatalChartParams): Promise<NatalCh
   url.searchParams.append('time', params.time);
   url.searchParams.append('latitude', params.latitude.toString());
   url.searchParams.append('longitude', params.longitude.toString());
+  url.searchParams.append('house_system', params.house_system || 'placidus');
 
   console.log('Fetching natal chart from:', url.toString());
 

@@ -25,7 +25,8 @@ const DEFAULT_BIRTH_DATA: NatalChartParams = {
   date: '1990-01-01',
   time: '12:00:00',
   latitude: 31.5497,  // Lahore, Pakistan
-  longitude: 74.3436
+  longitude: 74.3436,
+  house_system: 'placidus'
 };
 
 export default function FullReportPage() {
@@ -154,6 +155,10 @@ export default function FullReportPage() {
 
           {natalChartData ? (
             <div className="space-y-6">
+              <div className="text-sm text-gray-400">
+                House system: <span className="text-purple-300 font-semibold">{natalChartData.house_system_used || natalChartData.house_system || 'unknown'}</span>
+              </div>
+
               {/* Chart Angles */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-gray-800 rounded-lg p-4">
@@ -195,6 +200,37 @@ export default function FullReportPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Additional Points */}
+              {natalChartData.points && Object.keys(natalChartData.points).length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-3 text-purple-300">Additional Points</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {Object.entries(natalChartData.points).map(([name, value]) => (
+                      <div key={name} className="bg-gray-800 rounded p-3">
+                        <div className="flex justify-between items-start mb-1">
+                          <span className="font-semibold">{name}</span>
+                          {typeof value?.longitude === 'number' && (
+                            <span className="text-sm text-gray-400">
+                              {value.longitude.toFixed(2)}°
+                            </span>
+                          )}
+                        </div>
+                        {typeof value?.longitude === 'number' && (
+                          <div className="text-sm text-purple-300">
+                            {getZodiacSign(value.longitude)}
+                          </div>
+                        )}
+                        {typeof value?.is_day_birth === 'boolean' && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            {value.is_day_birth ? 'Day birth' : 'Night birth'}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Houses */}
               <div>

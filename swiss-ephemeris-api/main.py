@@ -17,7 +17,13 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Set the path to ephemeris files
-swe.set_ephe_path('./ephe')
+# Use an absolute path so Railway (and other deploys) can find it reliably.
+EPHE_PATH = os.getenv(
+    "EPHE_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "ephe"),
+)
+swe.set_ephe_path(EPHE_PATH)
+logger.info(f"📂 Ephemeris path set to: {EPHE_PATH}")
 
 # Initialize TimezoneFinder for lat/lon to timezone conversion
 tf = TimezoneFinder()
@@ -130,9 +136,9 @@ def root():
                     "time": "HH:MM:SS format",
                     "latitude": "decimal degrees",
                     "longitude": "decimal degrees",
-                    "house_system": "(optional) P=Placidus, K=Koch, W=Whole Sign, E=Equal, R=Regiomontanus (default: P)"
+                    "house_system": "(optional) placidus/koch/whole_sign/equal/regiomontanus or P/K/W/E/R (default: placidus)"
                 },
-                "example": "/api/natal-chart?date=1990-01-01&time=12:00:00&latitude=40.7128&longitude=-74.0060&house_system=P"
+                "example": "/api/natal-chart?date=1990-01-01&time=12:00:00&latitude=40.7128&longitude=-74.0060&house_system=placidus"
             },
             "astrocartography": {
                 "path": "/api/astrocartography",
@@ -167,14 +173,62 @@ def root():
         }
     }
 
-def compute_chart(jd_ut, latitude, longitude, house_system="P"):
+def _normalize_house_system(house_system: str):
+    """
+    Accepts either Swiss Ephemeris single-letter codes (P/K/W/E/R) or
+    friendly query values (placidus/koch/whole_sign/equal/regiomontanus).
+    Returns (hsys_code_str, hsys_name).
+    """
+    raw = (house_system or "").strip().lower()
+    mapping = {
+        "p": ("P", "placidus"),
+        "placidus": ("P", "placidus"),
+        "k": ("K", "koch"),
+        "koch": ("K", "koch"),
+        "w": ("W", "whole_sign"),
+        "whole": ("W", "whole_sign"),
+        "whole_sign": ("W", "whole_sign"),
+        "wholesign": ("W", "whole_sign"),
+        "e": ("E", "equal"),
+        "equal": ("E", "equal"),
+        "r": ("R", "regiomontanus"),
+        "regiomontanus": ("R", "regiomontanus"),
+        "regio": ("R", "regiomontanus"),
+    }
+    if raw in mapping:
+        return mapping[raw]
+
+    # If a user passed a valid Swiss Ephemeris code we don't explicitly map,
+    # keep it as-is (uppercase). This preserves compatibility with older callers.
+    if len(raw) == 1 and raw.isalpha():
+        code = raw.upper()
+        return (code, code)
+
+    raise HTTPException(
+        400,
+        detail="Invalid house_system. Use placidus/koch/whole_sign/equal/regiomontanus (or P/K/W/E/R).",
+    )
+
+
+def _safe_calc_ut(jd_ut: float, body_id: int, flags: int):
+    try:
+        return swe.calc_ut(jd_ut, body_id, flags)
+    except Exception as e:
+        return e
+
+
+def compute_chart(jd_ut, latitude, longitude, house_system="placidus"):
     """Compute astrological chart data using Swiss Ephemeris"""
 
-    # Calculate houses
-    houses, ascmc = swe.houses(jd_ut, latitude, longitude, house_system.encode('ascii'))
+    hsys_code, hsys_name = _normalize_house_system(house_system)
+
+    # Calculate houses (cusps) + angles
+    houses, ascmc = swe.houses_ex(jd_ut, latitude, longitude, hsys_code.encode("ascii"))
 
     # Planet calculations
     planets = {}
+    points = {}
+    calculation_warnings = []
     planet_ids = {
         'Sun': swe.SUN,
         'Moon': swe.MOON,
@@ -187,13 +241,19 @@ def compute_chart(jd_ut, latitude, longitude, house_system="P"):
         'Neptune': swe.NEPTUNE,
         'Pluto': swe.PLUTO,
         'Chiron': swe.CHIRON,
+        # Keep existing naming for backwards compatibility:
         'North Node': swe.TRUE_NODE,
+        # And add the "astro.com-style" keys many frontends expect:
+        'TrueNode': swe.TRUE_NODE,
     }
 
     # Use geocentric positions with speed for all planets (matches Astro.com standard)
     for name, planet_id in planet_ids.items():
         # Calculate with speed flag for accurate speed values
-        result = swe.calc_ut(jd_ut, planet_id, swe.FLG_SPEED)
+        result = _safe_calc_ut(jd_ut, planet_id, swe.FLG_SPEED)
+        if isinstance(result, Exception):
+            calculation_warnings.append(f"{name} calculation failed: {str(result)}")
+            continue
 
         planets[name] = {
             'longitude': result[0][0],
@@ -203,20 +263,79 @@ def compute_chart(jd_ut, latitude, longitude, house_system="P"):
         }
 
     # Calculate South Node as opposite of North Node
-    north_node_lon = planets['North Node']['longitude']
-    planets['South Node'] = {
-        'longitude': (north_node_lon + 180) % 360,
-        'latitude': -planets['North Node']['latitude'],  # Opposite latitude
-        'distance': planets['North Node']['distance'],
-        'speed': planets['North Node']['speed']
-    }
+    if 'North Node' in planets:
+        north_node_lon = planets['North Node']['longitude']
+        south_node = {
+            'longitude': (north_node_lon + 180) % 360,
+            'latitude': -planets['North Node']['latitude'],  # Opposite latitude
+            'distance': planets['North Node']['distance'],
+            'speed': planets['North Node']['speed']
+        }
+        planets['South Node'] = south_node
+        planets['SouthNode'] = south_node
+
+    # Optional: Lilith (Mean Black Moon)
+    lilith_res = _safe_calc_ut(jd_ut, swe.MEAN_APOG, swe.FLG_SPEED)
+    if not isinstance(lilith_res, Exception):
+        points["Lilith"] = {
+            "longitude": lilith_res[0][0],
+            "latitude": lilith_res[0][1],
+            "distance": lilith_res[0][2],
+            "speed": lilith_res[0][3],
+        }
+    else:
+        calculation_warnings.append(f"Lilith calculation failed: {str(lilith_res)}")
+
+    # Optional: Part of Fortune (day/night birth)
+    try:
+        asc = float(ascmc[0])
+        if "Sun" in planets and "Moon" in planets:
+            sun_lon = float(planets["Sun"]["longitude"])
+            moon_lon = float(planets["Moon"]["longitude"])
+
+            sun_equ = _safe_calc_ut(jd_ut, swe.SUN, swe.FLG_EQUATORIAL | swe.FLG_SPEED)
+            is_day_birth = None
+            if not isinstance(sun_equ, Exception):
+                ra = float(sun_equ[0][0])
+                dec = float(sun_equ[0][1])
+                dist = float(sun_equ[0][2])
+                geopos = (float(longitude), float(latitude), 0.0)
+                # pyswisseph returns (azimuth, true_altitude, apparent_altitude)
+                # for swe.azalt(); use true altitude for day/night.
+                azimuth, true_altitude, apparent_altitude = swe.azalt(
+                    jd_ut,
+                    swe.EQU2HOR,
+                    geopos,
+                    0.0,
+                    0.0,
+                    (ra, dec, dist),
+                )
+                altitude = float(true_altitude)
+                is_day_birth = altitude > 0
+
+            if is_day_birth is True:
+                pof = (asc + moon_lon - sun_lon) % 360
+            else:
+                # If unknown (no equatorial calc), default to night formula to avoid
+                # silently matching the wrong value for many deployments.
+                pof = (asc + sun_lon - moon_lon) % 360
+
+            points["PartOfFortune"] = {
+                "longitude": pof,
+                "is_day_birth": is_day_birth,
+            }
+    except Exception as e:
+        calculation_warnings.append(f"Part of Fortune calculation failed: {str(e)}")
 
     return {
         'planets': planets,
         'houses': list(houses),
-        'house_system': house_system,
+        'house_system': hsys_code,
+        'house_system_used': hsys_name,
         'ascendant': ascmc[0],
-        'mc': ascmc[1]
+        'mc': ascmc[1],
+        'points': points,
+        'warnings': calculation_warnings
     }
 
 @app.get("/api/natal-chart")
@@ -225,7 +344,10 @@ def natal_chart_alias(
     time: str = Query(...),
     latitude: float = Query(...),
     longitude: float = Query(...),
-    house_system: str = Query("P", description="House system: P=Placidus, K=Koch, W=Whole Sign, E=Equal, R=Regiomontanus")
+    house_system: str = Query(
+        "placidus",
+        description="House system: placidus/koch/whole_sign/equal/regiomontanus (or P/K/W/E/R). Default: placidus",
+    )
 ):
     """
     Calculate natal chart with proper timezone conversion.
@@ -254,10 +376,8 @@ def natal_chart_alias(
     except Exception:
         raise HTTPException(400, detail="Invalid date or time format")
 
-    # Validate house system
-    valid_systems = ['P', 'K', 'W', 'E', 'R', 'C', 'A', 'V', 'X', 'H', 'T', 'B', 'O']
-    if house_system.upper() not in valid_systems:
-        raise HTTPException(400, detail=f"Invalid house system. Valid options: {', '.join(valid_systems)}")
+    # Validate / normalize house system early so we fail fast with a helpful message
+    _normalize_house_system(house_system)
 
     # Convert local birth time to UTC (this is the critical fix!)
     utc_info = convert_local_to_utc(year, month, day, hour, minute, second, latitude, longitude)
@@ -266,7 +386,7 @@ def natal_chart_alias(
     jd_ut = utc_info['utc_jd']
 
     # Compute chart using UTC and specified house system
-    chart_data = compute_chart(jd_ut, latitude, longitude, house_system.upper())
+    chart_data = compute_chart(jd_ut, latitude, longitude, house_system)
 
     logger.info(f"✅ Natal chart calculated successfully")
     logger.info(f"{'='*60}\n")
