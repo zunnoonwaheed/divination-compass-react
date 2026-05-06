@@ -2,6 +2,8 @@ import os
 import logging
 import math
 from datetime import datetime
+import urllib.request
+import urllib.error
 from fastapi import FastAPI, Request, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import swisseph as swe
@@ -18,12 +20,58 @@ load_dotenv()
 
 # Set the path to ephemeris files
 # Use an absolute path so Railway (and other deploys) can find it reliably.
-EPHE_PATH = os.getenv(
-    "EPHE_PATH",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "ephe"),
+_EPHE_ENV = os.getenv("EPHE_PATH")
+EPHE_PATH = (_EPHE_ENV.strip() if isinstance(_EPHE_ENV, str) and _EPHE_ENV.strip() else None) or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "ephe",
 )
 swe.set_ephe_path(EPHE_PATH)
 logger.info(f"📂 Ephemeris path set to: {EPHE_PATH}")
+
+
+def _ensure_ephe_files():
+    """
+    Ensure required Swiss Ephemeris files exist for:
+    - sepl_18.se1: major planets
+    - semo_18.se1: Moon
+    - seas_18.se1: asteroids (Chiron)
+
+    Railway sometimes builds from cached layers or a different build path; this
+    startup check ensures Chiron won't crash even if the Docker download step
+    was skipped.
+    """
+    required = ["sepl_18.se1", "semo_18.se1", "seas_18.se1"]
+    os.makedirs(EPHE_PATH, exist_ok=True)
+
+    base_url = os.getenv("EPHE_BASE_URL", "https://www.astro.com/ftp/swisseph/ephe").rstrip("/")
+    allow_download = os.getenv("ALLOW_EPHE_DOWNLOAD", "1").strip() not in ("0", "false", "False", "no", "NO")
+
+    missing = [f for f in required if not os.path.exists(os.path.join(EPHE_PATH, f))]
+    if not missing:
+        logger.info("✅ Ephemeris files present (planets/moon/asteroids)")
+        return
+
+    logger.warning(f"⚠️ Missing ephemeris files in {EPHE_PATH}: {', '.join(missing)}")
+    if not allow_download:
+        logger.warning("⚠️ ALLOW_EPHE_DOWNLOAD is disabled; Chiron may fail.")
+        return
+
+    for fname in missing:
+        url = f"{base_url}/{fname}"
+        out_path = os.path.join(EPHE_PATH, fname)
+        try:
+            logger.info(f"↓ Downloading ephemeris: {fname}")
+            req = urllib.request.Request(url, headers={"User-Agent": "swiss-ephemeris-api/1.0"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = resp.read()
+            with open(out_path, "wb") as f:
+                f.write(data)
+            logger.info(f"✓ Saved ephemeris: {out_path} ({len(data)} bytes)")
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            logger.error(f"❌ Failed to download {fname} from {url}: {e}")
+
+
+_ensure_ephe_files()
 
 # Initialize TimezoneFinder for lat/lon to timezone conversion
 tf = TimezoneFinder()
