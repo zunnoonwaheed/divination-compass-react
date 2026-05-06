@@ -129,9 +129,10 @@ def root():
                     "date": "YYYY-MM-DD format",
                     "time": "HH:MM:SS format",
                     "latitude": "decimal degrees",
-                    "longitude": "decimal degrees"
+                    "longitude": "decimal degrees",
+                    "house_system": "(optional) P=Placidus, K=Koch, W=Whole Sign, E=Equal, R=Regiomontanus (default: P)"
                 },
-                "example": "/api/natal-chart?date=1990-01-01&time=12:00:00&latitude=40.7128&longitude=-74.0060"
+                "example": "/api/natal-chart?date=1990-01-01&time=12:00:00&latitude=40.7128&longitude=-74.0060&house_system=P"
             },
             "astrocartography": {
                 "path": "/api/astrocartography",
@@ -185,6 +186,8 @@ def compute_chart(jd_ut, latitude, longitude, house_system="P"):
         'Uranus': swe.URANUS,
         'Neptune': swe.NEPTUNE,
         'Pluto': swe.PLUTO,
+        'Chiron': swe.CHIRON,
+        'North Node': swe.TRUE_NODE,
     }
 
     # Use geocentric positions with speed for all planets (matches Astro.com standard)
@@ -199,9 +202,19 @@ def compute_chart(jd_ut, latitude, longitude, house_system="P"):
             'speed': result[0][3]
         }
 
+    # Calculate South Node as opposite of North Node
+    north_node_lon = planets['North Node']['longitude']
+    planets['South Node'] = {
+        'longitude': (north_node_lon + 180) % 360,
+        'latitude': -planets['North Node']['latitude'],  # Opposite latitude
+        'distance': planets['North Node']['distance'],
+        'speed': planets['North Node']['speed']
+    }
+
     return {
         'planets': planets,
         'houses': list(houses),
+        'house_system': house_system,
         'ascendant': ascmc[0],
         'mc': ascmc[1]
     }
@@ -211,17 +224,26 @@ def natal_chart_alias(
     date: str = Query(...),
     time: str = Query(...),
     latitude: float = Query(...),
-    longitude: float = Query(...)
+    longitude: float = Query(...),
+    house_system: str = Query("P", description="House system: P=Placidus, K=Koch, W=Whole Sign, E=Equal, R=Regiomontanus")
 ):
     """
     Calculate natal chart with proper timezone conversion.
     Expects LOCAL birth time and converts to UTC internally.
+
+    House systems:
+    - P = Placidus (default, matches Astro.com)
+    - K = Koch
+    - W = Whole Sign
+    - E = Equal
+    - R = Regiomontanus
     """
     logger.info(f"\n{'='*60}")
     logger.info(f"🌟 NATAL CHART REQUEST")
     logger.info(f"{'='*60}")
     logger.info(f"Input - Date: {date}, Time: {time}")
     logger.info(f"Input - Location: ({latitude}, {longitude})")
+    logger.info(f"Input - House System: {house_system}")
 
     try:
         date_parts = date.split("-")
@@ -232,14 +254,19 @@ def natal_chart_alias(
     except Exception:
         raise HTTPException(400, detail="Invalid date or time format")
 
+    # Validate house system
+    valid_systems = ['P', 'K', 'W', 'E', 'R', 'C', 'A', 'V', 'X', 'H', 'T', 'B', 'O']
+    if house_system.upper() not in valid_systems:
+        raise HTTPException(400, detail=f"Invalid house system. Valid options: {', '.join(valid_systems)}")
+
     # Convert local birth time to UTC (this is the critical fix!)
     utc_info = convert_local_to_utc(year, month, day, hour, minute, second, latitude, longitude)
 
     # Use UTC Julian Day for all calculations
     jd_ut = utc_info['utc_jd']
 
-    # Compute chart using UTC
-    chart_data = compute_chart(jd_ut, latitude, longitude, "P")
+    # Compute chart using UTC and specified house system
+    chart_data = compute_chart(jd_ut, latitude, longitude, house_system.upper())
 
     logger.info(f"✅ Natal chart calculated successfully")
     logger.info(f"{'='*60}\n")
@@ -523,6 +550,8 @@ def calculate_astrocartography_lines_proper(jd_ut, birth_lat=None, birth_lon=Non
         'Uranus': swe.URANUS,
         'Neptune': swe.NEPTUNE,
         'Pluto': swe.PLUTO,
+        'Chiron': swe.CHIRON,
+        'North Node': swe.TRUE_NODE,
     }
 
     lines = []
