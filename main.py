@@ -16,8 +16,10 @@ logger = logging.getLogger(__name__)
 # Load environment variables from .env file
 load_dotenv()
 
-# Set the path to ephemeris files
-swe.set_ephe_path('./ephe')
+# Set the path to ephemeris files (absolute path for Railway)
+EPHE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ephe')
+swe.set_ephe_path(EPHE_PATH)
+logger.info(f'📂 Ephemeris path set to: {EPHE_PATH}')
 
 # Initialize TimezoneFinder for lat/lon to timezone conversion
 tf = TimezoneFinder()
