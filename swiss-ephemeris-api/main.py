@@ -25,8 +25,17 @@ EPHE_PATH = (_EPHE_ENV.strip() if isinstance(_EPHE_ENV, str) and _EPHE_ENV.strip
     os.path.dirname(os.path.abspath(__file__)),
     "ephe",
 )
+# Set both the SwissEph internal path and the env var (some builds consult env var)
+os.environ.setdefault("SE_EPHE_PATH", EPHE_PATH)
 swe.set_ephe_path(EPHE_PATH)
 logger.info(f"📂 Ephemeris path set to: {EPHE_PATH}")
+try:
+    if os.path.isdir(EPHE_PATH):
+        logger.info(f"📄 Ephemeris files present: {sorted([f for f in os.listdir(EPHE_PATH) if f.endswith('.se1')])}")
+    else:
+        logger.warning("⚠️ EPHE_PATH directory does not exist yet")
+except Exception as e:
+    logger.warning(f"⚠️ Could not list EPHE_PATH contents: {e}")
 
 
 def _ensure_ephe_files():
@@ -69,6 +78,10 @@ def _ensure_ephe_files():
             logger.info(f"✓ Saved ephemeris: {out_path} ({len(data)} bytes)")
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             logger.error(f"❌ Failed to download {fname} from {url}: {e}")
+
+    # Re-apply ephemeris path after downloads
+    os.environ.setdefault("SE_EPHE_PATH", EPHE_PATH)
+    swe.set_ephe_path(EPHE_PATH)
 
 
 _ensure_ephe_files()
