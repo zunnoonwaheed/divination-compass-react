@@ -544,6 +544,27 @@ def find_zodiacal_line_longitude(planet_lon, target_angle_offset, jd_ut, latitud
 
     return None
 
+ASTROCARTOGRAPHY_MAX_LATITUDE = 85.0
+
+
+def normalize_longitude(longitude):
+    return ((longitude + 180.0) % 360.0) - 180.0
+
+
+def get_astrocartography_latitudes(num_points=50, max_latitude=ASTROCARTOGRAPHY_MAX_LATITUDE, include_equator=True):
+    if num_points <= 1:
+        return [0.0]
+
+    step = (max_latitude * 2.0) / (num_points - 1)
+    latitudes = [round(-max_latitude + (step * index), 6) for index in range(num_points)]
+
+    if include_equator and not any(abs(lat) < 1e-9 for lat in latitudes):
+        latitudes.append(0.0)
+        latitudes.sort()
+
+    return latitudes
+
+
 def find_in_mundo_line_longitude(planet_ra, planet_dec, jd_ut, latitude, is_ascending=True):
     """
     Find longitude where a planet crosses the horizon using In Mundo method.
@@ -593,42 +614,10 @@ def find_in_mundo_line_longitude(planet_ra, planet_dec, jd_ut, latitude, is_asce
         while required_armc >= 360:
             required_armc -= 360
 
-        # Binary search to find longitude that gives this sidereal time
-        left = -180.0
-        right = 180.0
-        tolerance = 0.01
-
-        for _ in range(100):
-            mid = (left + right) / 2.0
-
-            try:
-                houses, ascmc = swe.houses(jd_ut, latitude, mid, b'P')
-                current_armc = ascmc[2]  # ARMC at this longitude
-
-                # Calculate difference in sidereal time
-                diff = current_armc - required_armc
-
-                # Handle wraparound
-                if diff > 180:
-                    diff -= 360
-                elif diff < -180:
-                    diff += 360
-
-                if abs(diff) < tolerance:
-                    return mid
-
-                # ARMC increases with longitude moving East
-                # If current_armc > required_armc, move West (decrease longitude)
-                if diff > 0:
-                    right = mid
-                else:
-                    left = mid
-
-                if abs(right - left) < tolerance:
-                    return mid
-
-            except Exception:
-                return None
+        # ARMC is local sidereal time. Calculate longitude directly instead of
+        # calling Placidus houses, which can fail above the polar circles.
+        greenwich_sidereal_degrees = (swe.sidtime(jd_ut) * 15.0) % 360.0
+        return normalize_longitude(required_armc - greenwich_sidereal_degrees)
 
     except Exception:
         return None
@@ -662,16 +651,16 @@ def calculate_zodiacal_line_points(planet_lon, target_angle_offset, jd_ut, num_p
         lon_at_equator = find_zodiacal_line_longitude(planet_lon, target_angle_offset, jd_ut, 0.0, house_system)
 
         if lon_at_equator is not None:
-            # MC/IC lines are nearly vertical, but still need to be calculated at different latitudes
-            latitudes = [lat for lat in range(-60, 61, int(120/num_points))]
+            # MC/IC lines are effectively vertical and should remain visible in
+            # high-latitude regions such as Iceland and Greenland.
+            latitudes = get_astrocartography_latitudes(num_points)
             for lat in latitudes:
                 # Refine the longitude at this specific latitude
                 lon = find_zodiacal_line_longitude(planet_lon, target_angle_offset, jd_ut, lat, house_system)
-                if lon is not None:
-                    points.append({'latitude': lat, 'longitude': lon})
+                points.append({'latitude': lat, 'longitude': lon if lon is not None else lon_at_equator})
     else:  # ASC or DSC - use Zodiacal for now (will be replaced with In Mundo)
         # These curve significantly with latitude
-        latitudes = [lat for lat in range(-60, 61, int(120/num_points)) if lat != 0]
+        latitudes = get_astrocartography_latitudes(num_points)
         for lat in latitudes:
             lon = find_zodiacal_line_longitude(planet_lon, target_angle_offset, jd_ut, lat, house_system)
             if lon is not None:
@@ -696,7 +685,7 @@ def calculate_in_mundo_line_points(planet_ra, planet_dec, jd_ut, is_ascending=Tr
         List of {'latitude': lat, 'longitude': lon} dictionaries
     """
     points = []
-    latitudes = [lat for lat in range(-60, 61, int(120/num_points)) if lat != 0]
+    latitudes = get_astrocartography_latitudes(num_points)
 
     for lat in latitudes:
         lon = find_in_mundo_line_longitude(planet_ra, planet_dec, jd_ut, lat, is_ascending)
