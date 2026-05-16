@@ -544,7 +544,7 @@ def find_zodiacal_line_longitude(planet_lon, target_angle_offset, jd_ut, latitud
 
     return None
 
-ASTROCARTOGRAPHY_MAX_LATITUDE = 85.0
+ASTROCARTOGRAPHY_MAX_LATITUDE = 88.0
 
 
 def normalize_longitude(longitude):
@@ -748,7 +748,7 @@ def calculate_astrocartography_lines_proper(jd_ut, birth_lat=None, birth_lon=Non
         # Use In Mundo method for ASC/DSC (matches Astro.com)
 
         # 1. MC LINE (90° from ASC) - Zodiacal method
-        mc_points = calculate_zodiacal_line_points(planet_lon, 90, jd_ut, num_points=25)
+        mc_points = calculate_zodiacal_line_points(planet_lon, 90, jd_ut, num_points=80)
         for point in mc_points:
             lines.append({
                 'planet': planet_name,
@@ -760,7 +760,7 @@ def calculate_astrocartography_lines_proper(jd_ut, birth_lat=None, birth_lon=Non
             })
 
         # 2. IC LINE (270° from ASC) - Zodiacal method
-        ic_points = calculate_zodiacal_line_points(planet_lon, 270, jd_ut, num_points=25)
+        ic_points = calculate_zodiacal_line_points(planet_lon, 270, jd_ut, num_points=80)
         for point in ic_points:
             lines.append({
                 'planet': planet_name,
@@ -772,7 +772,7 @@ def calculate_astrocartography_lines_proper(jd_ut, birth_lat=None, birth_lon=Non
             })
 
         # 3. ASC LINE - In Mundo method (horizon rising)
-        asc_points = calculate_in_mundo_line_points(planet_ra, planet_dec, jd_ut, is_ascending=True, num_points=40)
+        asc_points = calculate_in_mundo_line_points(planet_ra, planet_dec, jd_ut, is_ascending=True, num_points=80)
         for point in asc_points:
             lines.append({
                 'planet': planet_name,
@@ -784,7 +784,7 @@ def calculate_astrocartography_lines_proper(jd_ut, birth_lat=None, birth_lon=Non
             })
 
         # 4. DSC LINE - In Mundo method (horizon setting)
-        dsc_points = calculate_in_mundo_line_points(planet_ra, planet_dec, jd_ut, is_ascending=False, num_points=40)
+        dsc_points = calculate_in_mundo_line_points(planet_ra, planet_dec, jd_ut, is_ascending=False, num_points=80)
         for point in dsc_points:
             lines.append({
                 'planet': planet_name,
