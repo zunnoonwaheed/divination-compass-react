@@ -136,6 +136,42 @@ export function AstrocartographyMap({
           // Sort coordinates by latitude for proper line drawing
           const sortedCoords = data.coordinates.sort((a, b) => b[1] - a[1]);
 
+          // Split lines that wrap around ±180° longitude boundary
+          // This prevents lines from drawing across the entire map
+          const lineSegments: number[][][] = [];
+          let currentSegment: number[][] = [sortedCoords[0]];
+
+          for (let i = 1; i < sortedCoords.length; i++) {
+            const prevLon = sortedCoords[i - 1][0];
+            const currLon = sortedCoords[i][0];
+            const lonDiff = Math.abs(currLon - prevLon);
+
+            // If longitude jumps > 180°, it's wrapping around the map edge
+            if (lonDiff > 180) {
+              // End current segment and start a new one
+              lineSegments.push(currentSegment);
+              currentSegment = [sortedCoords[i]];
+            } else {
+              currentSegment.push(sortedCoords[i]);
+            }
+          }
+
+          // Add the last segment
+          if (currentSegment.length > 0) {
+            lineSegments.push(currentSegment);
+          }
+
+          // Create MultiLineString for lines that wrap, or LineString for continuous lines
+          const geometry = lineSegments.length > 1
+            ? {
+                type: 'MultiLineString' as const,
+                coordinates: lineSegments
+              }
+            : {
+                type: 'LineString' as const,
+                coordinates: sortedCoords
+              };
+
           // Add source
           map.current.addSource(key, {
             type: 'geojson',
@@ -145,10 +181,7 @@ export function AstrocartographyMap({
                 planet: data.planet,
                 lineType: data.lineType
               },
-              geometry: {
-                type: 'LineString',
-                coordinates: sortedCoords
-              }
+              geometry
             }
           });
 
